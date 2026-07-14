@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "patterns": [
+    "**/.DS_Store",
+    "**/*.log",
+    "**/*.wav",
+    "**/*.bak",
+    "**/*.backup",
+    "**/cache/**",
+    "**/caches/**",
+    "**/sessions/**",
+    "**/traces/**",
+    "MEMORY/WORK/**",
+    "MEMORY/STATE/**",
+    "**/events.jsonl",
+    "**/voice-events.jsonl",
+    "**/*credentials*",
+    "**/.env",
+    "**/.env.*"
+  ]
+}

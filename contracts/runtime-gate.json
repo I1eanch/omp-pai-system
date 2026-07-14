@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "modes": {
+    "minimal": {
+      "header": "═══ PAI ═══════════════════════════",
+      "toolsAllowed": false
+    },
+    "native": {
+      "header": "════ PAI | NATIVE MODE ═══════════════════════",
+      "taskWordCount": 8
+    },
+    "algorithm": {
+      "header": "♻︎ Entering the PAI ALGORITHM… (v3.5.0) ═════════════",
+      "taskWordCount": 8,
+      "firstTool": "read",
+      "defaultSource": "bundled-mit-v3.5.0",
+      "localOverrideOnly": true
+    }
+  },
+  "subagents": {
+    "defaultMode": "native",
+    "algorithmMarker": "<pai-mode>ALGORITHM</pai-mode>"
+  },
+  "invariants": [
+    "The first visible character belongs to the selected mode header.",
+    "The mode header and TASK line appear once per user turn.",
+    "Algorithm blocks all tools until its active source is fully read.",
+    "A local Algorithm override is never fetched or uploaded by the plugin.",
+    "Personal TELOS and MEMORY state never enters the package directory."
+  ]
+}

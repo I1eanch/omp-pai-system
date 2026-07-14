@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "directories": [
+    "WORK",
+    "STATE",
+    "LEARNING/REFLECTIONS",
+    "LEARNING/SIGNALS",
+    "LEARNING/FAILURES",
+    "LEARNING/SYNTHESIS",
+    "RAW"
+  ],
+  "immutablePackageTemplates": true,
+  "generatedStateRoot": "${memoryRoot}"
+}

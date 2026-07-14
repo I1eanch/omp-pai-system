@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-pai-system/telos-record.schema.json",
+  "title": "Portable TELOS record frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "status", "updated"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": {
+      "enum": [
+        "beliefs",
+        "challenges",
+        "decisions",
+        "goals",
+        "ideas",
+        "learned",
+        "projects"
+      ]
+    },
+    "status": { "enum": ["starter", "active", "archived"] },
+    "updated": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

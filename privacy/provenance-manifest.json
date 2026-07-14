@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-14",
+  "sources": [
+    {
+      "id": "pai-upstream-v4.0.3",
+      "source": "https://github.com/danielmiessler/PAI",
+      "tag": "v4.0.3",
+      "commit": "52e7ad856430afedd4949360c26323d2d80c20fa",
+      "author": "Daniel Miessler and contributors",
+      "license": "MIT",
+      "licenseEvidence": "LICENSE at tag v4.0.3",
+      "distributable": true,
+      "localComparison": {
+        "upstreamFiles": 110,
+        "localFiles": 144,
+        "sharedFiles": 110,
+        "exactFiles": 93,
+        "modifiedFiles": 17,
+        "localOnlyFiles": 34
+      }
+    },
+    {
+      "id": "local-runtime-gate",
+      "source": "user-owned local implementation",
+      "paths": [
+        "~/.omp/agent/extensions/pai-runtime-gate.ts",
+        "~/.omp/agent/extensions/pai-runtime-gate.test.mjs"
+      ],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true
+    },
+    {
+      "id": "portable-pai-templates",
+      "source": "original package documentation and contracts",
+      "paths": ["templates/PAI/**"],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true,
+      "constraint": "Portable roots only; no legacy host-directory assumptions."
+    },
+    {
+      "id": "package-original-code",
+      "source": "newly authored omp-pai-system package",
+      "paths": [
+        "package.json",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "README.md",
+        "CHANGELOG.md",
+        "docs/**",
+        "src/**",
+        "contracts/**",
+        "privacy/**"
+      ],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true
+    },
+    {
+      "id": "local-agent-overlays",
+      "source": "user-owned PAI integration blocks",
+      "paths": ["~/.omp/agent/agents/*.md#pai-subagent-mode"],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true,
+      "constraint": "Only the marked PAI overlay block may be reused; bundled OMP profile text is excluded."
+    },
+    {
+      "id": "algorithm-v3.5.0-bundled",
+      "source": "PAI v4.0.3 Releases/v4.0.3/.claude/PAI/Algorithm/v3.5.0.md",
+      "upstreamCommit": "52e7ad856430afedd4949360c26323d2d80c20fa",
+      "paths": ["templates/Algorithm/v3.5.0.md"],
+      "sha256": "2ba1c649780ccc60be4065375c40c2664993e928d0ff4d5c4775267e4c8a35ae",
+      "author": "Daniel Miessler and contributors",
+      "license": "MIT",
+      "distributable": true,
+      "strategy": "Bundle a path-portable derivative as the clean-install default; preserve the MIT notice and track the exact derivative checksum."
+    },
+    {
+      "id": "algorithm-v3.7.0",
+      "source": "https://github.com/danielmiessler/TheAlgorithm",
+      "author": "Daniel Miessler",
+      "license": "UNRESOLVED",
+      "licenseEvidence": "README badge says MIT; repository exposes no LICENSE file or license API entry",
+      "distributable": false,
+      "strategy": "Accept only an explicit existing local path override; never download or vendor automatically."
+    },
+    {
+      "id": "sanitized-telos-starters",
+      "source": "newly authored empty schemas and starter records",
+      "paths": ["templates/TELOS/**"],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true,
+      "constraint": "No personal values, contacts, host paths, or copied local TELOS records."
+    },
+    {
+      "id": "personal-telos",
+      "source": "~/.claude/PAI/USER/TELOS",
+      "author": "local user",
+      "license": "PRIVATE",
+      "distributable": false,
+      "strategy": "Ship newly authored sanitized starter templates only."
+    },
+    {
+      "id": "sanitized-memory-starters",
+      "source": "newly authored schemas, layout, and empty registries",
+      "paths": ["templates/MEMORY/**"],
+      "author": "Nikolay Kovelin with AI assistance",
+      "license": "Apache-2.0",
+      "distributable": true,
+      "constraint": "No runtime records, session history, traces, credentials, or copied local MEMORY state."
+    },
+    {
+      "id": "personal-memory",
+      "source": "~/.claude/MEMORY",
+      "author": "local user and generated runtime state",
+      "license": "PRIVATE",
+      "distributable": false,
+      "strategy": "Ship newly authored schemas and empty state only; private export remains local."
+    }
+  ],
+  "releaseRule": "Every staged file must map to a distributable source or be original package code."
+}

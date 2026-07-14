@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "include": [
+    "package.json",
+    "README.md",
+    "CHANGELOG.md",
+    "docs/**",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "src/**",
+    "contracts/**",
+    "templates/**",
+    "privacy/allowlist.json",
+    "privacy/exclusions.json",
+    "privacy/provenance-manifest.json"
+  ],
+  "exclude": [
+    ".git/**",
+    "node_modules/**",
+    "dist/**",
+    "release/**",
+    "tests/**",
+    "scripts/**"
+  ]
+}
