@@ -2,13 +2,6 @@
 
 `omp-pai-system` is licensed under Apache-2.0. The following third-party material or runtime dependencies are not relicensed by that license.
 
-## PAI / The Algorithm 3.5.0
-
-- Copyright: Daniel Miessler and contributors
-- Source: https://github.com/danielmiessler/PAI/tree/v4.0.3
-- License: MIT
-- Use: `templates/Algorithm/v3.5.0.md` is a path-portable derivative. The exact derivative checksum is recorded in `privacy/provenance-manifest.json`.
-
 ## tar-stream runtime dependency tree
 
 | Package | Version | License |

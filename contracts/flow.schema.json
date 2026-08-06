@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omp-pai-system:schema:flow:1",
+  "title": "OMP PAI Flow definition",
+  "description": "Deterministic Action state machine. The runtime additionally requires initial and every onSuccess target to name a declared state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "initial", "states"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "$ref": "#/$defs/id" },
+    "initial": { "$ref": "#/$defs/id" },
+    "states": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/state" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": { "$ref": "#/$defs/id" },
+        "onSuccess": { "$ref": "#/$defs/id" },
+        "terminal": { "type": "boolean" },
+        "pause": { "type": "boolean" }
+      },
+      "oneOf": [
+        {
+          "required": ["terminal"],
+          "properties": {
+            "terminal": { "const": true },
+            "pause": { "const": false }
+          },
+          "not": { "required": ["onSuccess"] }
+        },
+        {
+          "required": ["onSuccess"],
+          "anyOf": [
+            { "not": { "required": ["terminal"] } },
+            { "properties": { "terminal": { "const": false } } }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,22 +1,27 @@
 # Portable PAI Core
 
-Этот каталог содержит переносимые системные спецификации PAI. Он не является пользовательским состоянием и не изменяется во время работы.
+Этот каталог — immutable package contract. Пользовательское состояние хранится только в `${dataRoot}`.
 
-## Корни
+## Roots
 
-- `${pluginRoot}` — immutable-каталог установленного plugin package.
-- `${dataRoot}` — локальное mutable-состояние конкретного OMP profile.
-- `${algorithmPath}` — выбранный локальный Algorithm; сетевые источники запрещены.
-- `${memoryRoot}` — `${dataRoot}/MEMORY`.
-- `${telosRoot}` — `${dataRoot}/TELOS`.
+- `${pluginRoot}` — установленный package, read-only.
+- `${dataRoot}` — локальные TELOS, MEMORY, PRD и automation state.
+- `${pluginRoot}/skills` — OMP-native skills, обнаруживаемые через `resources_discover`.
+- `${dataRoot}/PAI/ACTIONS` — локальные Action definitions.
+- `${dataRoot}/PAI/FLOWS` — Flow definitions.
+- `${dataRoot}/PAI/PIPELINES` — Pipeline definitions.
 
-Все исполняемые компоненты получают корни через plugin config. Template-файлы не вычисляют домашний каталог и не содержат machine-specific путей.
+Host-specific пути, credentials, персональные данные и runtime state не входят в package templates.
 
-## Контракты
+## Runtime invariants
 
-1. Каждый ответ выбирает ровно один режим: MINIMAL, NATIVE или ALGORITHM.
-2. ALGORITHM сначала читает активный локальный `algorithmPath`.
-3. Рабочий прогресс хранится в одном `PRD.md` согласно `PRDFORMAT.md`.
-4. Персональные TELOS и MEMORY создаются только в `dataRoot` и не входят в package.
-5. Actions, flows и pipelines являются декларативными локальными расширениями; их определения живут в пользовательском состоянии.
-6. Export персонального состояния выполняется только явной локальной командой.
+1. Каждый main-agent turn получает ровно один mode: `MINIMAL`, `NATIVE` или `ALGORITHM`.
+2. Mode управляет нативным OMP thinking level и короткой hidden policy; видимые ritual headers не требуются.
+3. Сложная работа использует OMP-native skill `pai-deep-work` по необходимости.
+4. Контекст загружается bounded retrieval через `pai_context`, а не полным чтением TELOS/MEMORY.
+5. Durable personal memory записывается только через validated tool с provenance и confirmation rules.
+6. Активная многошаговая работа использует OMP todo/goal; PRD создаётся для действительно persistent workflow.
+7. Actions, Flows и Pipelines являются локальными declarative contracts с validation, approval tiers и checkpoint.
+8. Import никогда не перезаписывает существующий private state.
+
+См. `CONTEXT_ROUTING.md`, `PRDFORMAT.md` и каталоги automation ниже.

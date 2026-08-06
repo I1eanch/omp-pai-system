@@ -124,4 +124,39 @@ describe("initializePaiState", () => {
     );
     expect(existsSync(join(outside, "GOALS.md"))).toBe(false);
   });
+
+  test("rejects unsafe directories, starter sources, and destination types", () => {
+    const symlinkRoot = tempDataRoot();
+    const outside = tempDataRoot();
+    mkdirSync(resolve(symlinkRoot, ".."), { recursive: true });
+    symlinkSync(outside, symlinkRoot);
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot: symlinkRoot }))
+      .toThrow("symlink directory");
+
+    const fileRoot = tempDataRoot();
+    mkdirSync(fileRoot, { recursive: true });
+    writeFileSync(join(fileRoot, "TELOS"), "not a directory");
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot: fileRoot }))
+      .toThrow("Expected directory");
+
+    const missingTemplates = tempDataRoot();
+    expect(() => initializePaiState({
+      pluginRoot: join(tempDataRoot(), "missing-plugin"),
+      dataRoot: missingTemplates,
+    })).toThrow("Invalid starter template");
+
+    const destinationRoot = tempDataRoot();
+    mkdirSync(join(destinationRoot, "TELOS/README.md"), { recursive: true });
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot: destinationRoot }))
+      .toThrow("Expected file but found directory");
+
+    const invalidPlugin = tempDataRoot();
+    mkdirSync(invalidPlugin, { recursive: true });
+    symlinkSync(join(packageRoot, "templates"), join(invalidPlugin, "templates"), "dir");
+    writeFileSync(join(invalidPlugin, "package.json"), "{}\n");
+    expect(() => initializePaiState({
+      pluginRoot: invalidPlugin,
+      dataRoot: tempDataRoot(),
+    })).toThrow("Invalid plugin package metadata");
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { MEMORY_KINDS } from "../../src/state/memory.ts";
 
 const packageRoot = resolve(import.meta.dir, "../..");
 const requiredPortableTemplates = [
@@ -31,13 +32,67 @@ describe("bundled PAI templates", () => {
     }
   });
 
-  test("tracks the licensed portable Algorithm v3.5.0 derivative exactly", () => {
-    const content = readFileSync(
-      join(packageRoot, "templates/Algorithm/v3.5.0.md"),
-    );
-    const digest = new Bun.CryptoHasher("sha256").update(content).digest("hex");
-    expect(digest).toBe(
-      "2ba1c649780ccc60be4065375c40c2664993e928d0ff4d5c4775267e4c8a35ae",
-    );
+  test("ships machine-readable contracts and the native deep-work skill", () => {
+    for (const filename of [
+      "runtime-gate.json",
+      "action.schema.json",
+      "flow.schema.json",
+      "pipeline.schema.json",
+      "memory-record.schema.json",
+    ]) {
+      const contract = JSON.parse(
+        readFileSync(join(packageRoot, "contracts", filename), "utf8"),
+      ) as { schemaVersion?: number; $schema?: string };
+      expect(
+        (typeof contract.schemaVersion === "number" && contract.schemaVersion >= 1)
+        || contract.$schema?.includes("json-schema") === true,
+      ).toBe(true);
+    }
+    const skill = readFileSync(join(packageRoot, "skills/pai-deep-work/SKILL.md"), "utf8");
+    expect(skill).toContain("name: pai-deep-work");
+    expect(skill).toContain("description:");
+  });
+
+  test("keeps machine-readable schemas aligned with runtime contracts", () => {
+    const action = JSON.parse(
+      readFileSync(join(packageRoot, "contracts/action.schema.json"), "utf8"),
+    ) as {
+      $id: string;
+      $defs: { runtimeSchema: { anyOf: Array<{ properties?: Record<string, unknown> }> } };
+    };
+    const runtimeKeywords = Object.keys(action.$defs.runtimeSchema.anyOf[1]!.properties!);
+    expect(runtimeKeywords.sort()).toEqual([
+      "additionalProperties",
+      "const",
+      "enum",
+      "items",
+      "maxItems",
+      "maxLength",
+      "maximum",
+      "minItems",
+      "minLength",
+      "minimum",
+      "pattern",
+      "properties",
+      "required",
+      "type",
+    ]);
+    expect(action.$id).toBe("urn:omp-pai-system:schema:action:1");
+
+    const memory = JSON.parse(
+      readFileSync(join(packageRoot, "contracts/memory-record.schema.json"), "utf8"),
+    ) as { properties: { kind: { enum: string[] } }; additionalProperties: boolean };
+    expect(memory.properties.kind.enum).toEqual([...MEMORY_KINDS]);
+    expect(memory.additionalProperties).toBe(false);
+
+    const flow = JSON.parse(
+      readFileSync(join(packageRoot, "contracts/flow.schema.json"), "utf8"),
+    ) as { $defs: { state: { oneOf: unknown[] } } };
+    expect(flow.$defs.state.oneOf).toHaveLength(2);
+
+    const pipeline = JSON.parse(
+      readFileSync(join(packageRoot, "contracts/pipeline.schema.json"), "utf8"),
+    ) as { properties: { steps: { minItems: number; maxItems: number } } };
+    expect(pipeline.properties.steps).toMatchObject({ minItems: 1, maxItems: 1000 });
   });
 });

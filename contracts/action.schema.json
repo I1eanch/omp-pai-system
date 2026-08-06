@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omp-pai-system:schema:action:1",
+  "title": "OMP PAI Action manifest",
+  "description": "Manifest for one trusted local Action. The runtime also requires the id to match its directory and entry to be a regular non-symlink basename.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "entry", "description", "input", "output", "timeoutMs"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "$ref": "#/$defs/id" },
+    "entry": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+\\.(?:js|ts)$",
+      "description": "Local basename only; absolute paths, parent traversal, backslashes, NUL, and symlinks are rejected by the runtime."
+    },
+    "description": { "type": "string", "minLength": 1 },
+    "input": { "$ref": "#/$defs/runtimeSchema" },
+    "output": { "$ref": "#/$defs/runtimeSchema" },
+    "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 300000 }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+    "runtimeSchema": {
+      "description": "Fail-closed JSON Schema subset implemented by the Action runtime.",
+      "anyOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "oneOf": [
+                { "enum": ["array", "boolean", "integer", "null", "number", "object", "string"] },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "enum": ["array", "boolean", "integer", "null", "number", "object", "string"] }
+                }
+              ]
+            },
+            "const": true,
+            "enum": { "type": "array", "minItems": 1 },
+            "minLength": { "type": "integer", "minimum": 0 },
+            "maxLength": { "type": "integer", "minimum": 0 },
+            "pattern": { "type": "string" },
+            "minimum": { "type": "number" },
+            "maximum": { "type": "number" },
+            "minItems": { "type": "integer", "minimum": 0 },
+            "maxItems": { "type": "integer", "minimum": 0 },
+            "items": { "$ref": "#/$defs/runtimeSchema" },
+            "properties": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/runtimeSchema" }
+            },
+            "required": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": {
+              "anyOf": [
+                { "type": "boolean" },
+                { "$ref": "#/$defs/runtimeSchema" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

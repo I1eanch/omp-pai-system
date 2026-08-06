@@ -1,289 +1,138 @@
-import assert from "node:assert/strict";
+import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { createPaiRuntimeGate } from "../../src/runtime/pai-runtime-gate.ts";
+import {
+  buildTurnPolicy,
+  createPaiRuntime,
+  isSubagentSystemPrompt,
+  thinkingLevelForMode,
+} from "../../src/runtime/pai-runtime-gate.ts";
+import {
+  PAI_RUNTIME_CONTRACT,
+  routePaiPrompt,
+} from "../../src/runtime/pai-runtime-contract.ts";
 
-const algorithmPath = "/opt/omp/plugins/omp-pai-system/templates/Algorithm/v3.5.0.md";
-type RuntimeHandler = (event: any) => any;
-const handlers: Record<string, RuntimeHandler> = {};
-createPaiRuntimeGate({
-  algorithmPath,
-  algorithmVersion: "3.5.0",
-  dataRoot: "/tmp/fake-home/.omp/agent/pai",
-  paiTemplateRoot: "/opt/omp/plugins/omp-pai-system/templates/PAI",
-})({
-  on: (name: string, handler: RuntimeHandler) => { handlers[name] = handler; },
-} as unknown as ExtensionAPI);
+type RuntimeHandler = (event: Record<string, unknown>) => unknown;
 
-const mainSystem = "base";
-const subSystem = "COOP\nYou are operating on a piece of work assigned to you by the main agent.";
-const minimalHeader = "═══ PAI ═══════════════════════════";
-const nativeHeader = "════ PAI | NATIVE MODE ═══════════════════════";
-const algorithmHeader = "♻︎ Entering the PAI ALGORITHM… (v3.5.0) ═════════════";
-const safeTask = "🗒️ TASK: Выполняю запрос полностью и проверяю результат по критериям";
-const assistantText = (text: string) => ({ message: { role: "assistant", content: [{ type: "text", text }] } });
-const emitAssistant = async (text: string) => {
-  const event = assistantText(text);
-  if (handlers.message_start) await handlers.message_start(event);
-  await handlers.message_update(event);
-};
-const tool = (toolName: string, toolCallId: string, input: Record<string, unknown> = {}) => ({ toolName, toolCallId, input });
+function runtimeHarness(options: { throwThinking?: boolean } = {}) {
+  const handlers: Record<string, RuntimeHandler> = {};
+  const thinking: string[] = [];
+  const entries: Array<{ type: string; data: unknown }> = [];
+  const warnings: unknown[] = [];
+  createPaiRuntime({
+    dataRoot: "/tmp/profile/pai",
+    skillRoot: "/opt/plugin/skills",
+  })({
+    on: (name: string, handler: RuntimeHandler) => { handlers[name] = handler; },
+    setThinkingLevel: (level: string) => {
+      if (options.throwThinking) throw new Error("unsupported");
+      thinking.push(level);
+    },
+    appendEntry: (type: string, data: unknown) => { entries.push({ type, data }); },
+    logger: { warn: (...args: unknown[]) => { warnings.push(args); } },
+  } as unknown as ExtensionAPI);
+  return { handlers, thinking, entries, warnings };
+}
 
-await handlers.before_agent_start({ prompt: "сложная задача", systemPrompt: [mainSystem] });
-const deterministicGemini = await handlers.before_provider_request({
-  payload: {
-    model: "gemini-3-flash-agent",
-    contents: [],
-    config: {
-      systemInstruction: { role: "user", parts: [{ text: "base instruction" }] },
-      maxOutputTokens: 1,
-      thinkingConfig: {
-        includeThoughts: true,
-        thinkingLevel: "HIGH",
-        thinkingBudget: 16,
+describe("PAI runtime contract", () => {
+  test("routes minimal, atomic, complex, fallback, and subagent prompts", () => {
+    expect(routePaiPrompt("спасибо", false)).toEqual({
+      mode: "minimal",
+      reason: "minimal-message",
+    });
+    expect(routePaiPrompt("Исправь опечатку", false)).toEqual({
+      mode: "native",
+      reason: "short-atomic-task",
+    });
+    expect(routePaiPrompt("Реализуй сложный многофайловый проект", false)).toEqual({
+      mode: "algorithm",
+      reason: "complex-task",
+    });
+    expect(routePaiPrompt("Неопознанный содержательный запрос", false)).toEqual({
+      mode: "algorithm",
+      reason: "safe-fallback",
+    });
+    expect(routePaiPrompt("Проверь папку", true)).toEqual({
+      mode: "native",
+      reason: "subagent-default",
+    });
+    expect(routePaiPrompt("<pai-mode>ALGORITHM</pai-mode> Проверь папку", true)).toEqual({
+      mode: "algorithm",
+      reason: "explicit-algorithm",
+    });
+  });
+
+  test("declares a hidden provider-independent protocol", () => {
+    expect(PAI_RUNTIME_CONTRACT.schemaVersion).toBe(2);
+    expect(PAI_RUNTIME_CONTRACT.output).toEqual({
+      visibleProtocol: false,
+      headersRequired: false,
+      taskLineRequired: false,
+    });
+    expect(String(thinkingLevelForMode("minimal"))).toBe("minimal");
+    expect(String(thinkingLevelForMode("native"))).toBe("low");
+    expect(String(thinkingLevelForMode("algorithm"))).toBe("high");
+  });
+
+  test("recognizes supported subagent markers", () => {
+    expect(isSubagentSystemPrompt(["base"])).toBe(false);
+    expect(isSubagentSystemPrompt([
+      "You are operating on a piece of work assigned to you by the main agent.",
+    ])).toBe(true);
+    expect(isSubagentSystemPrompt(["<subagent>worker</subagent>"])).toBe(true);
+  });
+
+  test("builds a compact policy without visible or voice rituals", () => {
+    const policy = buildTurnPolicy(
+      { mode: "algorithm", reason: "complex-task" },
+      "/tmp/profile/pai",
+    );
+    expect(policy).toContain("Use the pai-deep-work skill");
+    expect(policy).toContain("/tmp/profile/pai/TELOS");
+    expect(policy).toContain("Do not print mode headers");
+    expect(policy).toContain("Never contact voice, TTS");
+    expect(policy).not.toContain("localhost:8888");
+    expect(buildTurnPolicy(
+      { mode: "native", reason: "short-atomic-task" },
+      "/tmp/profile/pai",
+    )).toContain("normal OMP workflow");
+  });
+
+  test("registers native hooks, resources, thinking, and route persistence", async () => {
+    const { handlers, thinking, entries } = runtimeHarness();
+    expect(Object.keys(handlers).sort()).toEqual([
+      "before_agent_start",
+      "resources_discover",
+      "turn_end",
+    ]);
+    expect(await handlers.resources_discover({ type: "resources_discover" })).toEqual({
+      skillPaths: ["/opt/plugin/skills"],
+    });
+
+    const result = await handlers.before_agent_start({
+      prompt: "Реализуй проект",
+      systemPrompt: ["base"],
+    }) as { systemPrompt: string[] };
+    expect(result.systemPrompt[0]).toBe("base");
+    expect(result.systemPrompt.at(-1)).toContain("Internal mode: ALGORITHM");
+    expect(thinking).toEqual(["high"]);
+
+    await handlers.turn_end({ turnIndex: 3 });
+    expect(entries).toEqual([{
+      type: "pai-runtime-route",
+      data: {
+        schemaVersion: 1,
+        turnIndex: 3,
+        mode: "algorithm",
+        reason: "complex-task",
       },
-    },
-  },
-});
-assert.equal(deterministicGemini.config.temperature, 0);
-assert.equal(deterministicGemini.config.thinkingConfig.thinkingLevel, "MINIMAL");
-assert.equal("thinkingBudget" in deterministicGemini.config.thinkingConfig, false);
-assert.equal(deterministicGemini.config.thinkingConfig.includeThoughts, false);
-assert.equal(deterministicGemini.config.systemInstruction.parts[0].text, "base instruction");
-assert.equal(deterministicGemini.config.systemInstruction.role, "user");
-assert.match(deterministicGemini.config.systemInstruction.parts.at(-1).text, /This OMP turn requires ALGORITHM/);
-assert.ok(deterministicGemini.config.systemInstruction.parts.at(-1).text.includes(`${algorithmHeader}\n${safeTask}`));
-const budgetGemini = await handlers.before_provider_request({
-  payload: {
-    model: "gemini-2.5-flash",
-    contents: [],
-    config: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16 } },
-  },
-});
-assert.equal(budgetGemini.config.thinkingConfig.thinkingBudget, 0);
-assert.equal("thinkingLevel" in budgetGemini.config.thinkingConfig, false);
-const levelProGemini = await handlers.before_provider_request({
-  payload: {
-    model: "gemini-3-pro-preview",
-    contents: [],
-    config: { thinkingConfig: { thinkingLevel: "HIGH", thinkingBudget: 16 } },
-  },
-});
-assert.equal(levelProGemini.config.thinkingConfig.thinkingLevel, "LOW");
-assert.equal("thinkingBudget" in levelProGemini.config.thinkingConfig, false);
-const budgetProGemini = await handlers.before_provider_request({
-  payload: {
-    model: "gemini-2.5-pro",
-    contents: [],
-    config: { thinkingConfig: { thinkingBudget: 8_192 } },
-  },
-});
-assert.equal(budgetProGemini.config.thinkingConfig.thinkingBudget, 128);
-assert.equal("thinkingLevel" in budgetProGemini.config.thinkingConfig, false);
-const cliLevelProGemini = await handlers.before_provider_request({
-  payload: {
-    project: "offline",
-    model: "gemini-3-pro-preview",
-    request: {
-      contents: [],
-      systemInstruction: { role: "user", parts: [{ text: "cli base" }] },
-      generationConfig: {
-        thinkingConfig: { thinkingLevel: "HIGH", thinkingBudget: 16 },
-      },
-    },
-  },
-});
-assert.equal(cliLevelProGemini.request.generationConfig.thinkingConfig.thinkingLevel, "LOW");
-assert.equal("thinkingBudget" in cliLevelProGemini.request.generationConfig.thinkingConfig, false);
-assert.equal(cliLevelProGemini.request.systemInstruction.parts[0].text, "cli base");
-const cliBudgetProGemini = await handlers.before_provider_request({
-  payload: {
-    project: "offline",
-    model: "gemini-2.5-pro",
-    request: {
-      contents: [],
-      generationConfig: { thinkingConfig: { thinkingBudget: 8_192 } },
-    },
-  },
-});
-assert.equal(cliBudgetProGemini.request.generationConfig.thinkingConfig.thinkingBudget, 128);
-assert.equal("thinkingLevel" in cliBudgetProGemini.request.generationConfig.thinkingConfig, false);
-const synthesizedGemini = await handlers.before_provider_request({
-  payload: { model: "gemini-3-flash-agent", contents: [], config: {} },
-});
-assert.equal(synthesizedGemini.config.systemInstruction.role, "user");
-assert.equal((await handlers.tool_call(tool("glob", "g0"))).block, true);
-await emitAssistant(`\uFEFF${algorithmHeader}\n${safeTask}`);
-assert.equal((await handlers.tool_call(tool("read", "g-bom", { path: algorithmPath }))).block, true);
-await emitAssistant(`${algorithmHeader} \n${safeTask}`);
-assert.equal((await handlers.tool_call(tool("read", "g-trailing", { path: algorithmPath }))).block, true);
-await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "g1"))).block, true);
-assert.equal(
-  (
-    await handlers.tool_call(
-      tool("read", "r-narrow-initial", { path: algorithmPath, selector: "1-1" }),
-    )
-  ).block,
-  true,
-);
-assert.equal(await handlers.tool_call(tool("read", "r1", { path: algorithmPath })), undefined);
-assert.equal((await handlers.tool_call(tool("glob", "g2"))).block, true);
-await handlers.tool_result({ toolCallId: "r1", isError: true });
-assert.equal((await handlers.tool_call(tool("glob", "g3"))).block, true);
-assert.equal(await handlers.tool_call(tool("read", "r2", { path: algorithmPath })), undefined);
-await handlers.tool_result({
-  toolCallId: "r2",
-  isError: false,
-  details: { truncation: { truncated: true, outputLines: 300, totalLines: 380 } },
-});
-assert.equal((await handlers.tool_call(tool("glob", "g4"))).block, true);
-assert.equal(
-  (
-    await handlers.tool_call(
-      tool("read", "r-short", { path: algorithmPath, selector: "301-301" }),
-    )
-  ).block,
-  true,
-);
-assert.equal(
-  (
-    await handlers.tool_call(
-      tool("read", "r-wrong-start", { path: algorithmPath, selector: "302-" }),
-    )
-  ).block,
-  true,
-);
-assert.equal(
-  await handlers.tool_call(tool("read", "r3", { path: algorithmPath, selector: "301-" })),
-  undefined,
-);
-await handlers.tool_result({
-  toolCallId: "r3",
-  isError: false,
-  details: { truncation: { truncated: false, outputLines: 80, totalLines: 80 } },
-});
-await emitAssistant("Продолжаю без повторного заголовка.");
-assert.equal(await handlers.tool_call(tool("glob", "g5")), undefined);
-await emitAssistant(`Продолжаю\n${safeTask}`);
-assert.equal((await handlers.tool_call(tool("glob", "g-repeat-task"))).block, true);
-assert.equal(await handlers.before_provider_request({ payload: { model: "gemini-3-flash-agent", request: { generationConfig: {} } } }), undefined);
-const continuationContext = await handlers.context({ messages: [] });
-assert.equal(continuationContext.messages.at(-1).customType, "pai-runtime-continuation");
+    }]);
+  });
 
-const algorithmRoutingCases = [
-  ["troubleshooting", "Устрани неожиданный сбой авторизации."],
-  ["debugging", "Отладь падение парсера."],
-  ["building", "Собери новый модуль импорта."],
-  ["designing", "Спроектируй архитектуру очереди."],
-  ["investigating", "Исследуй проблему и найди причину."],
-  ["refactoring", "Проведи рефакторинг слоя хранения."],
-  ["planning", "Составь план миграции данных."],
-  ["complex-or-difficult", "Реши сложную задачу согласования состояний."],
-  ["multiple-files-or-steps", "Несколько модулей конфликтуют; исправь связанные файлы."],
-];
-for (const [category, prompt] of algorithmRoutingCases) {
-  await handlers.before_agent_start({ prompt, systemPrompt: [mainSystem] });
-  await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-  assert.equal(
-    (await handlers.tool_call(tool("glob", `route-${category}`))).block,
-    true,
-    category,
-  );
-  await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-  assert.equal(
-    await handlers.tool_call(tool("read", `route-read-${category}`, { path: algorithmPath })),
-    undefined,
-    category,
-  );
-}
-
-await handlers.before_agent_start({
-  prompt: "Исправь опечатку в фразе: «Я хочю домой».",
-  systemPrompt: [mainSystem],
+  test("ignores turn_end before routing and logs unsupported thinking", async () => {
+    const { handlers, entries, warnings } = runtimeHarness({ throwThinking: true });
+    await handlers.turn_end({ turnIndex: 0 });
+    expect(entries).toEqual([]);
+    await handlers.before_agent_start({ prompt: "спасибо", systemPrompt: [] });
+    expect(warnings).toHaveLength(1);
+  });
 });
-await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "atomic-algorithm"))).block, true);
-await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-assert.equal(await handlers.tool_call(tool("glob", "atomic-native")), undefined);
-
-const nativeQuestionRoutingCases = [
-  ["status", "ты завис?"],
-  ["arithmetic", "Сколько будет 2+2?"],
-  ["definition", "Что такое JSON?"],
-  ["location", "Где файл?"],
-  ["deadline", "Когда дедлайн?"],
-  ["state", "Какой статус?"],
-];
-for (const [category, prompt] of nativeQuestionRoutingCases) {
-  await handlers.before_agent_start({ prompt, systemPrompt: [mainSystem] });
-  await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-  assert.equal(
-    await handlers.tool_call(tool("glob", `native-question-${category}`)),
-    undefined,
-    category,
-  );
-}
-
-await handlers.before_agent_start({
-  prompt: "Подготовь подробный обзор темы с примерами, рисками и рекомендациями.",
-  systemPrompt: [mainSystem],
-});
-await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "unmatched-native"))).block, true);
-await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-assert.equal(await handlers.tool_call(tool("read", "unmatched-algorithm", { path: algorithmPath })), undefined);
-
-const minimalRoutingCases = [
-  ["greeting", "Привет!"],
-  ["formal-greeting", "Здравствуйте"],
-  ["morning-greeting", "Доброе утро"],
-  ["ack-yes", "Да"],
-  ["ack-correct", "Верно"],
-  ["ack-great", "Отлично"],
-  ["ack-ready", "Готово"],
-  ["ack-done", "Сделано"],
-  ["thanks", "Спасибо"],
-  ["rating-short", "9/10"],
-  ["rating-natural", "Ставлю 9 из 10"],
-];
-for (const [category, prompt] of minimalRoutingCases) {
-  await handlers.before_agent_start({ prompt, systemPrompt: [mainSystem] });
-  await emitAssistant(`${minimalHeader}\n📃 CONTENT: ${prompt}`);
-  assert.match(
-    (await handlers.tool_call(tool("glob", `minimal-${category}`))).reason,
-    /MINIMAL cannot call tools/,
-    category,
-  );
-}
-
-await handlers.before_agent_start({ prompt: "проверь папку", systemPrompt: [subSystem] });
-await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "s1"))).block, true);
-await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-assert.equal(await handlers.tool_call(tool("glob", "s2")), undefined);
-await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "s-repeat"))).block, true);
-
-await handlers.before_agent_start({ prompt: "проверь папку", systemPrompt: [subSystem] });
-await emitAssistant(`${nativeHeader}\n${safeTask}`);
-assert.equal(await handlers.tool_call(tool("glob", "s-no-final-newline")), undefined);
-
-await handlers.before_agent_start({ prompt: "проверь папку", systemPrompt: [subSystem] });
-await emitAssistant(`${nativeHeader}\n${safeTask}\n[READ]\n`);
-assert.equal((await handlers.tool_call(tool("glob", "s-status"))).block, true);
-
-await handlers.before_agent_start({ prompt: "проверь папку", systemPrompt: [subSystem] });
-await emitAssistant(
-  `${nativeHeader}\n🗒️ TASK: Выполняю другой запрос и проверяю результат по критериям\n`,
-);
-assert.equal((await handlers.tool_call(tool("glob", "t1"))).block, true);
-await emitAssistant(`${safeTask}\n`);
-assert.equal(await handlers.tool_call(tool("glob", "t2")), undefined);
-await emitAssistant(`${nativeHeader}\n${safeTask}\n`);
-assert.equal((await handlers.tool_call(tool("glob", "t3"))).block, true);
-
-await handlers.before_agent_start({ prompt: "<pai-mode>ALGORITHM</pai-mode> проверь папку", systemPrompt: [subSystem] });
-await emitAssistant(`${algorithmHeader}\n${safeTask}\n`);
-assert.equal(await handlers.tool_call(tool("read", "s3", { path: algorithmPath })), undefined);
-
-console.log("PASS: portable runtime gate assertions cover routing, exact output protocol, dual official Gemini payloads, model-specific thinking limits, Algorithm reads, continuation, truncation, message identity, and retry");

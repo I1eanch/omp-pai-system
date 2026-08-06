@@ -11,6 +11,7 @@
   "files": [
     "src/",
     "contracts/",
+    "skills/",
     "templates/",
     "privacy/",
     "README.md",

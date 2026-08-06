@@ -10,7 +10,7 @@ import { createPaiPlugin } from "../../src/index.ts";
 
 const pluginRoot = resolve(import.meta.dir, "../..");
 
-test("loads and chains through the official OMP ExtensionRunner", async () => {
+test("loads native PAI runtime and resources through the official ExtensionRunner", async () => {
   const root = mkdtempSync(join(tmpdir(), "omp-pai-official-sdk-"));
   try {
     const { session } = await createAgentSession({
@@ -32,33 +32,33 @@ test("loads and chains through the official OMP ExtensionRunner", async () => {
       expect(runner).toBeDefined();
 
       const start = await runner!.emitBeforeAgentStart(
-        "Собери многофайловый Astro/Tilda лендинг.",
+        "Собери многофайловый лендинг.",
         undefined,
         ["base"],
       );
       expect(start?.systemPrompt?.[0]).toBe("base");
-      expect(start?.systemPrompt?.join("\n\n")).toContain("OMP PAI RUNTIME GATE");
+      expect(start?.systemPrompt?.join("\n\n")).toContain("OMP PAI TURN POLICY");
+      expect(start?.systemPrompt?.join("\n\n")).toContain("Internal mode: ALGORITHM");
+      expect(start?.systemPrompt?.join("\n\n")).not.toContain("Entering the PAI");
 
-      const providerPayload = await runner!.emitBeforeProviderRequest({
+      const payload = {
         model: "gemini-3-flash-preview",
-        contents: [],
-        config: {
-          thinkingConfig: { thinkingLevel: "HIGH", includeThoughts: true },
-        },
-      }) as Record<string, any>;
-      expect(providerPayload.config.thinkingConfig).toEqual({
-        thinkingLevel: "MINIMAL",
-        includeThoughts: false,
+        config: { thinkingConfig: { thinkingLevel: "HIGH" } },
+      };
+      expect(await runner!.emitBeforeProviderRequest(payload)).toEqual(payload);
+
+      const resources = await runner!.emitResourcesDiscover(root, "startup");
+      expect(resources.skillPaths).toContainEqual({
+        path: join(pluginRoot, "skills"),
+        extensionPath: "<inline-0>",
       });
-      expect(providerPayload.config.systemInstruction.parts.at(-1).text)
-        .toContain("This OMP turn requires ALGORITHM");
 
       const subagent = await runner!.emitBeforeAgentStart(
-        "Собери многофайловый Astro/Tilda лендинг.",
+        "Проверь папку.",
         undefined,
-        ["COOP", "You are operating on a piece of work assigned to you by the main agent."],
+        ["You are operating on a piece of work assigned to you by the main agent."],
       );
-      expect(subagent?.systemPrompt?.join("\n\n")).toContain("This OMP turn requires NATIVE");
+      expect(subagent?.systemPrompt?.join("\n\n")).toContain("Internal mode: NATIVE");
     } finally {
       await session.dispose();
     }

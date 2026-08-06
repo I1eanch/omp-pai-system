@@ -8,6 +8,7 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "src/**",
+    "skills/**",
     "contracts/**",
     "templates/**",
     "privacy/allowlist.json",

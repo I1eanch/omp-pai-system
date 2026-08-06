@@ -1,126 +1,226 @@
 # omp-pai-system
 
-Portable runtime для PAI, Algorithm, TELOS и MEMORY в Oh My Pi (OMP).
+Portable PAI runtime для Oh My Pi (OMP): нативная маршрутизация режимов мышления, локальные TELOS/MEMORY/PRD, безопасная автоматизация и перенос приватного состояния.
 
 Текущая версия: `0.1.0`.
 
-## Возможности
+## Что делает пакет
 
-- Инициализирует локальные `TELOS`, `MEMORY` и PAI-шаблоны без перезаписи пользовательских файлов.
-- Принудительно маршрутизирует каждый основной запрос в `MINIMAL`, `NATIVE` или `ALGORITHM`.
-- Для `ALGORITHM` требует точный mode header, фиксированную строку `TASK` и полное чтение bundled Algorithm до других tool calls.
-- Поддерживает локальный override Algorithm без сетевой загрузки.
-- Проверяет состояние установки read-only командой `pai-doctor`.
-- Экспортирует и импортирует приватные `TELOS`/`MEMORY` архивы с SHA-256, проверкой путей и запретом перезаписи.
-- Поставляется через allowlisted staging и проверяемый release archive.
+- Загружается OMP как extension из `src/index.ts`.
+- Классифицирует каждый пользовательский turn в `MINIMAL`, `NATIVE` или `ALGORITHM`.
+- Выбирает нативный OMP thinking level через `pi.setThinkingLevel()` и добавляет короткую скрытую turn-policy.
+- Предоставляет OMP-native skill `pai-deep-work`; обязательного чтения большого Algorithm-файла нет.
+- Хранит TELOS, MEMORY, PRD и состояние автоматизации только в локальном `dataRoot`.
+- Регистрирует типизированные OMP tools для retrieval, контролируемой записи и automation.
+- Выполняет Actions в отдельных Bun-процессах с JSON Schema, timeout и лимитом вывода.
+- Выполняет Flows и Pipelines с checkpoint, checksum и явным resume.
+- Экспортирует и импортирует приватное состояние потоково, без перезаписи существующих файлов.
+- Проверяет package, schema, permissions, ownership, automation definitions и private paths через `pai-doctor`.
 
+HTTP-сервис и OpenAPI отсутствуют намеренно: публичный интерфейс — OMP Extension API, tools, hooks и slash commands.
 
-## Архитектура и Схема работы
-
-Рантайм работает как расширение для Oh My Pi (OMP), перехватывая события жизненного цикла агента через официальный Hook Contract.
-
-### Схема взаимодействия компонентов
+## Архитектура
 
 ```mermaid
 graph TD
-    U[Пользователь] -->|Запрос| A[OMP-агент (Oh My Pi)]
-    A -->|1. before_agent_start| G[omp-pai-system]
-    G -->|Внедрение системных инструкций| A
-    A -->|2. before_provider_request| P[Провайдер API Gemini]
-    G -->|Установка thinking & temperature| P
-    A -->|3. Вызов инструментов| T[tool_call]
-    T -->|Валидация запуска и Algorithm Gate| G
-    G -->|Разрешить / Заблокировать| T
+  U[User turn] --> R[before_agent_start]
+  R --> C[routePaiPrompt]
+  C --> T[pi.setThinkingLevel]
+  C --> P[compact hidden policy]
+  P --> A[OMP agent]
+  A --> S[OMP skill discovery]
+  A --> X[PAI tools]
+  X --> D[(local dataRoot)]
+  X --> E[Actions subprocess]
+  E --> F[Flows checkpoints]
+  E --> L[Pipelines checkpoints]
+  A --> Q[turn_end]
+  Q --> J[session entry: pai-runtime-route]
 ```
 
-### Полный список хуков жизненного цикла OMP:
+### Поток одного turn
 
-1. **`before_agent_start`**:
-   - Классифицирует входящий запрос пользователя на `MINIMAL`, `NATIVE` или `ALGORITHM`.
-   - Внедряет управляющие PAI-инструкции в системный промпт (`systemPrompt`), поддерживая цепочечное объединение промптов (`string[]` chaining).
+1. `createPaiPlugin()` один раз разрешает immutable config.
+2. `before_agent_start` вызывает `routePaiPrompt()`.
+3. `buildTurnPolicy()` формирует короткий policy с текущими путями TELOS/MEMORY/PRD и правилами выбранного режима.
+4. `thinkingLevelForMode()` задаёт `minimal`, `low` или `high` через OMP API.
+5. OMP выполняет turn обычными tools; сложная работа может явно вызвать skill `pai-deep-work`.
+6. `turn_end` сохраняет компактную запись `pai-runtime-route` в session history.
 
-2. **`before_provider_request`**:
-   - Модифицирует низкоуровневый payload провайдера (Google Generative AI и Gemini CLI).
-   - Применяет нулевую температуру (`temperature: 0`) и выставляет детерминированный уровень `thinkingConfig` (в зависимости от модели и исходного generation config).
+Видимые mode headers, фиксированная строка `TASK`, TTS, голосовые side effects и обязательное чтение legacy Algorithm удалены.
 
-3. **`context`**:
-   - Внедряет скрытое сообщение `pai-runtime-continuation` в историю контекста, предотвращая повторный вывод заголовков режимов и строк `TASK` при многошаговых итерациях в пределах одного хода.
+## Режимы
 
-4. **`message_start`**:
-   - Отслеживает начало ответа ассистента, инкрементирует счётчик сообщений и сбрасывает буфер выводимого текста.
+| Режим | Thinking | Инструменты | Назначение |
+|---|---|---:|---|
+| `MINIMAL` | `minimal` | нет | приветствия, благодарности, простые подтверждения |
+| `NATIVE` | `low` | да | короткие атомарные действия и вопросы |
+| `ALGORITHM` | `high` | да | сложная, неоднозначная, исследовательская или многофайловая работа |
 
-5. **`message_update`**:
-   - Заменяет локально отслеживаемый текст ассистента последним извлечённым значением для последующей проверки в `tool_call`.
+Контракт режимов находится в `contracts/runtime-gate.json`. Детерминированный `routePaiPrompt(prompt, isSubagent)` возвращает `{ mode, reason }`; delegated work по умолчанию получает `NATIVE`, чтобы не дублировать deep-work orchestration main agent, а явный `<pai-mode>ALGORITHM</pai-mode>` сохраняет приоритет.
 
-6. **`tool_call`**:
-   - Контролирует вызовы инструментов. Требует наличия обязательного заголовка режима и строки `TASK` в выводе ассистента (разрешён только один экземпляр за ход).
-   - В режиме `ALGORITHM` блокирует вызов любых других инструментов до тех пор, пока не будет выполнен полный последовательный запуск чтения файла Алгоритма.
-   - Проверяет путь и селектор первого чтения Алгоритма, отклоняя попытки обхода (Path-Bypass Protection).
+## Установка
 
-7. **`tool_result`**:
-   - Валидирует результат чтения Алгоритма, отслеживает маркеры усечения результата чтения (`truncation`) и переводит состояние плагина в `algorithmReadApproved = true` после полного прочтения файла.
-## Границы безопасности
+Требования:
 
-Пакет не поставляет пользовательские цели, контакты, историю сессий, credentials или содержимое приватного MEMORY. В release входят только исходный код, контракты и sanitized starter templates. Подробности: [`docs/best-practices.md`](docs/best-practices.md).
+- Bun `>=1.3.0`;
+- `@oh-my-pi/pi-coding-agent >=16.4.8`.
 
-## Локальная установка из source checkout
+Пакет объявляет extension в `package.json`:
 
-Требования: Bun `>=1.3.0`, установленный `omp` и OMP Extension SDK `@oh-my-pi/pi-coding-agent` `^16.4.8`.
-
-```bash
-bun install
-bun run typecheck
-bun test
-bun run build:staging
-omp plugin install "$PWD/dist/staging" --force --json
+```json
+{
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  }
+}
 ```
 
-После установки в OMP:
+После установки:
 
 ```text
 /pai-init
 /pai-doctor
 ```
 
-Нативная проверка plugin lifecycle:
-
-```bash
-omp plugin doctor omp-pai-system --json
-```
-
-## Команды OMP
-
-| Команда | Назначение |
-|---|---|
-| `/pai-init` | Создать отсутствующие starter files; существующие файлы сохранить |
-| `/pai-doctor` | Выполнить read-only health checks PAI runtime и private state |
-| `/pai-private-export <local-path>` | Экспортировать `TELOS` и `MEMORY` в локальный `.tar.gz` |
-| `/pai-private-import <local-path>` | Проверить и импортировать архив без перезаписи файлов |
-
-Пути с пробелами можно заключать в одинарные или двойные кавычки.
-
-## Режимы PAI
-
-- `MINIMAL` — приветствия, подтверждения, оценки; tool calls запрещены.
-- `NATIVE` — один короткий атомарный запрос или subagent без явного Algorithm opt-in.
-- `ALGORITHM` — сложные, многошаговые и неоднозначные запросы; также безопасный fallback для нераспознанных запросов основного агента.
-
-Runtime gate проверяет видимый первый text block, а не hidden reasoning. После принятия mode header повторный header или `TASK` в tool loop блокируется.
+`pai-init` идемпотентен: создаёт только отсутствующие starter-файлы, не перезаписывает пользовательские данные и создаёт новые приватные paths с owner-only permissions (`0700` для каталогов, `0600` для файлов).
 
 ## Конфигурация
 
 | Переменная | Назначение |
 |---|---|
-| `PI_CODING_AGENT_DIR` | Корень профиля OMP; по умолчанию `~/.omp/agent` |
-| `OMP_PAI_DATA_DIR` | Явный корень локального PAI state |
-| `OMP_PAI_ALGORITHM_PATH` | Абсолютный путь к локальному Algorithm override |
-| `OMP_PAI_ALGORITHM_VERSION` | SemVer override, если версия не выводится из имени файла |
+| `OMP_PAI_DATA_DIR` | Явный абсолютный или относительный локальный `dataRoot` |
+| `PI_CODING_AGENT_DIR` | OMP profile root; по умолчанию `${PI_CODING_AGENT_DIR}/pai` |
+| `HOME` / `USERPROFILE` | Fallback: `~/.omp/agent/pai` |
 
-`OMP_PAI_ALGORITHM_PATH` принимает только существующий локальный filesystem path. URL и относительные пути отклоняются. Пакет ничего не скачивает автоматически.
+Network Algorithm overrides больше не являются частью runtime config.
 
-## Проверка и release из source checkout
-Эти maintainer commands требуют `scripts/`, `tests/` и `tsconfig.json` из репозитория. Они намеренно недоступны внутри установленного release artifact.
+## Локальное состояние
 
+```text
+<dataRoot>/
+├── .omp-pai-ownership.json
+├── TELOS/
+│   ├── schema.json
+│   └── BELIEFS.md ... PROJECTS.md
+├── MEMORY/
+│   ├── WORK/<slug>/PRD.md
+│   ├── STATE/work.json
+│   ├── STATE/flows/<flowId>.json
+│   ├── STATE/pipelines/<pipelineId>.json
+│   └── LEARNING/SYNTHESIS/{memories.jsonl,index.json}
+└── PAI/
+    ├── ACTIONS/<actionId>/{action.json,action.ts}
+    ├── FLOWS/<flowId>.json
+    └── PIPELINES/<pipelineId>.json
+```
+
+### TELOS
+
+`src/state/telos.ts`:
+
+- `parseTelosRecord()` проверяет frontmatter, тип записи, status, timestamp и body.
+- `readTelosRecords()` безопасно читает все семь TELOS-файлов.
+- `queryTelos()` ранжирует совпадения и возвращает текст со source path.
+- `appendTelosEntry()` добавляет только явно переданный пользователем durable content и обновляет frontmatter.
+
+### MEMORY
+
+`src/state/memory.ts`:
+
+- `parseMemoryRecord()` валидирует JSONL record.
+- `readMemoryRecords()` читает записи с лимитами и проверяет уникальность UUID.
+- `recordMemory()` требует provenance, confidence и `userConfirmed=true` для фактов/предпочтений.
+- `rebuildMemoryIndex()` атомарно строит локальный индекс.
+- `queryMemory()` выполняет bounded deterministic retrieval.
+
+### PRD
+
+`src/state/prd.ts`:
+
+- `parsePrd()` проверяет восемь frontmatter fields и критерии `ISC-N`.
+- `writePrd()`, `readPrd()` и `listPrds()` работают только внутри `MEMORY/WORK`.
+- `syncPrdRegistry()` атомарно обновляет `MEMORY/STATE/work.json`.
+- `registerPrdSyncHook()` синхронизирует registry после успешного OMP `write`/`edit` PRD-файла.
+
+## OMP tools
+
+| Tool | Approval | Поведение |
+|---|---|---|
+| `pai_context` | `read` | Bounded retrieval из TELOS/MEMORY с provenance |
+| `pai_telos_append` | `write` | Добавляет валидированную TELOS entry |
+| `pai_memory_record` | `write` | Записывает provenance-aware MEMORY record |
+| `pai_prd` | `write` | `write`, `get`, `list` или `sync` PRD state |
+| `pai_action_run` | `exec` | Запускает Action subprocess |
+| `pai_flow_run` | `exec` | Запускает или явно возобновляет Flow |
+| `pai_pipeline_run` | `exec` | Запускает или явно возобновляет Pipeline |
+
+Tools регистрируются в `src/tools/pai-tools.ts`; параметры валидируются OMP Zod schemas до вызова runtime.
+
+## Actions
+
+Action хранится в `PAI/ACTIONS/<id>` и состоит из `action.json` и одного `.js`/`.ts` entry-файла. Формальный контракт: `contracts/action.schema.json`.
+
+Runtime:
+
+1. Проверяет id, manifest fields и basename-only entry.
+2. Проверяет input по manifest JSON Schema.
+3. Запрещает symlink entry.
+4. Запускает `Bun.spawn([process.execPath, entry])` в каталоге Action.
+5. Передаёт input как JSON в stdin; оставляет в env только `PATH` и `OMP_PAI_ACTION_ID`.
+6. Ограничивает timeout `1..300000 ms`, stdout/stderr — `1 MiB`; OMP `AbortSignal` завершает process tree и возвращает явную ошибку cancellation.
+7. Требует exit code `0`, один JSON result и валидный output schema.
+8. Возвращает output, duration и SHA-256 manifest+entry.
+
+Секреты не хранятся в manifest и не наследуются из полного host env.
+
+## Flows
+
+Flow — детерминированная state machine из `PAI/FLOWS/<id>.json`. Формальный контракт: `contracts/flow.schema.json`.
+
+Каждое состояние запускает Action. После успеха оно либо переходит в `onSuccess`, либо завершает flow (`terminal: true`), либо сохраняет `paused` checkpoint (`pause: true`). Ошибка Action сохраняет `failed` на текущем state и не создаёт скрытого перехода/retry; отмена OMP также сохраняет failure checkpoint, затем пробрасывается как cancellation.
+
+Checkpoint хранит definition SHA-256, current state, input/output, status и timestamp. Resume разрешён только явно и только при совпадающем definition checksum.
+
+## Pipelines
+
+Pipeline — последовательность Actions из `PAI/PIPELINES/<id>.json`. Формальный контракт: `contracts/pipeline.schema.json`.
+
+`input` шага может содержать ссылки:
+
+- `$pipeline.input` или `$pipeline.input.<path>`;
+- `$steps.<previous-step>.output` или `$steps.<previous-step>.output.<path>`.
+
+Forward references запрещены. После каждого шага runtime сохраняет output, output SHA-256, exact Action id и Action SHA-256. Resume принимает только строгий prefix проверенных completed steps; изменение definition, initial input, completed output, Action id или выполненного Action блокирует продолжение. OMP cancellation завершает текущий Action, сохраняет failed checkpoint и пробрасывается вызывающему tool runtime.
+
+## Slash commands
+
+| Command | Назначение |
+|---|---|
+| `/pai-init` | Инициализировать локальное состояние без перезаписи |
+| `/pai-doctor` | Read-only диагностика package/state/schema/permissions |
+| `/pai-memory-reindex` | Перестроить MEMORY index |
+| `/pai-prd-sync` | Проверить PRD и синхронизировать work registry |
+| `/pai-private-export <path>` | Потоково экспортировать TELOS/MEMORY в `tar.gz` |
+| `/pai-private-import <path>` | Потоково импортировать архив без перезаписи |
+
+Private archive содержит `manifest.json` с SHA-256 и metadata. Import запрещает path traversal, symlinks/hardlinks/devices, дубликаты, conflicts и archive внутри canonical `dataRoot`; лимитирует compressed snapshot и весь expanded tar stream до записи. Commit/rollback привязаны к inode identity и не удаляют concurrent replacements. Export отклоняет symlink ancestors и hardlinked sources. Все state directories обязаны быть owner-only `0700`, файлы создаются с mode `0600`.
+
+## Doctor
+
+`runPaiDoctor()` ничего не изменяет. Он проверяет:
+
+- package metadata и OMP-native skill;
+- completeness PAI templates;
+- отсутствие symlink в state roots;
+- owner-only permissions всего дерева `dataRoot`;
+- ownership manifest;
+- TELOS schema и records;
+- MEMORY layout, records, PRD и work registry;
+- Action/Flow/Pipeline definitions;
+- private path/file safety.
+
+## Разработка и release gates
 
 ```bash
 bun run typecheck
@@ -132,7 +232,7 @@ bun run test:lifecycle
 bun run smoke:install
 ```
 
-`build:staging` копирует только allowlisted файлы. `audit:privacy` проверяет provenance, exclusions, secrets и host-specific traces. `release:pack` создаёт архив и manifest с SHA-256. `test:lifecycle` проверяет lifecycle functions, а `smoke:install` выполняет реальный install/list/doctor/upgrade/uninstall в изолированном OMP profile.
+Release staging строится только из allowlist. Privacy audit проверяет sensitive patterns и provenance. Release pack повторно извлекается и сканируется; lifecycle smoke выполняет реальный OMP install/list/doctor/upgrade/uninstall в изолированном profile.
 
 ## Документация
 
@@ -141,8 +241,4 @@ bun run smoke:install
 - [Extension SDK](docs/sdk.md)
 - [История изменений](CHANGELOG.md)
 
-OpenAPI specification отсутствует намеренно: plugin не поднимает HTTP API.
-
-## Лицензия и provenance
-
-Исходный код пакета распространяется по Apache-2.0. Bundled Algorithm `v3.5.0` является производной от The Algorithm и сохраняет MIT notice. Точные источники и ограничения описаны в `privacy/provenance-manifest.json` и `THIRD_PARTY_NOTICES.md`.
+Исходный код — Apache-2.0. Provenance и third-party notices: `privacy/provenance-manifest.json`, `THIRD_PARTY_NOTICES.md`.

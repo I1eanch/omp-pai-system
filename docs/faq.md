@@ -2,49 +2,66 @@
 
 ## Где хранится локальное состояние?
 
-По умолчанию — `~/.omp/agent/pai`. Корень можно явно задать через `OMP_PAI_DATA_DIR`.
+По умолчанию — `~/.omp/agent/pai`. Явный root задаётся через `OMP_PAI_DATA_DIR`; profile root — через `PI_CODING_AGENT_DIR`.
 
-## Перезапишет ли `/pai-init` мои цели или память?
+## Копирует ли package личные TELOS/MEMORY?
 
-Нет. Команда создаёт только отсутствующие starter files. Существующие файлы учитываются как `skipped` и сохраняются.
+Нет. Package содержит только обезличенные starter templates. Реальные записи создаются внутри `dataRoot` и попадают в release только при ошибочном изменении allowlist, которую блокирует privacy audit.
 
-## Почему обычный запрос попал в ALGORITHM?
+## Нужен ли legacy Algorithm-файл?
 
-Для main agent ALGORITHM — безопасный fallback. Только приветствия/подтверждения попадают в MINIMAL, а короткие однозначные действия и вопросы — в NATIVE. Нераспознанный запрос не занижается до NATIVE.
+Нет. Runtime использует компактный mode contract, нативный OMP thinking и skill `pai-deep-work`. Видимый preamble, строка `TASK` и чтение монолитного Algorithm удалены.
 
-## Почему tool call заблокирован сразу после mode header?
+## Как выбирается режим?
 
-Проверьте три условия:
+Pure classifier `routePaiPrompt()` возвращает `minimal`, `native` или `algorithm` вместе с reason/confidence/needsTools. `before_agent_start` переводит mode в OMP thinking level: `minimal`, `low`, `high`.
 
-1. Header видим и дословно совпадает с активным режимом.
-2. Следующая строка дословно совпадает с фиксированной `TASK` runtime gate.
-3. Для ALGORITHM первый tool — `read` configured Algorithm path без selector.
+## Почему контекст не загрузился автоматически целиком?
 
-Hidden reasoning не удовлетворяет этим условиям.
+Это намеренно. `pai_context` делает bounded retrieval и возвращает provenance. Полное чтение TELOS/MEMORY увеличивает prompt overhead, privacy exposure и риск нерелевантного контекста.
 
-## Можно ли использовать Algorithm `v3.7.0`?
+## Когда создавать PRD?
 
-Да, если файл уже существует локально. Задайте абсолютный `OMP_PAI_ALGORITHM_PATH`. Версия выводится из имени `v3.7.0.md`; иначе задайте `OMP_PAI_ALGORITHM_VERSION=3.7.0`.
+Для persistent многошаговой работы, которую нужно продолжать между turns/sessions. Для короткой задачи используйте нативные OMP todo/goal.
 
-## Почему plugin не скачивает Algorithm автоматически?
+## Почему MEMORY fact/preferences требуют confirmation?
 
-Чтобы не смешивать runtime с недоказанным provenance/licensing и не отправлять данные во внешнюю сеть. Bundled `v3.5.0` имеет зафиксированный checksum и MIT notice; любой другой файл — явный local override пользователя.
+Чтобы inference модели не становился durable personal fact. `fact` и `preference` требуют `userConfirmed: true`, source и confidence.
 
-## Можно ли экспортировать private state внутрь `OMP_PAI_DATA_DIR`?
+## Почему Action заблокирован?
 
-Нет. Это создало бы рекурсивный архив и нарушило границу private state. Выберите соседний backup-каталог.
+Проверьте:
 
-## Что происходит при конфликте импорта?
+1. id и каталог `PAI/ACTIONS/<id>`;
+2. `action.json` по `contracts/action.schema.json`;
+3. basename `.js`/`.ts` entry без symlink;
+4. input/output JSON Schema;
+5. timeout, exit code и лимит stdout/stderr `1 MiB`;
+6. OMP approval tier `exec`.
 
-Импорт завершается ошибкой до commit. Существующий файл не перезаписывается. Архив также отклоняется при checksum/size mismatch, path traversal, symlink или неизвестной manifest schema.
+OMP cancellation передаётся в Action как `AbortSignal`: runtime завершает process tree и возвращает `Action aborted`. Для Flow/Pipeline текущий failure checkpoint сохраняется до проброса cancellation.
 
-## Почему в репозитории нет OpenAPI specification?
+## Как продолжить Flow после pause/failure?
 
-Plugin не предоставляет HTTP API. Его interface — OMP extension hooks и slash commands. Пустая OpenAPI spec создала бы ложный публичный контракт.
+Вызовите `pai_flow_run` с `resume: true`. Definition SHA-256 и SHA-256 каждого уже выполненного Action должны совпадать с checkpoint. Не редактируйте checkpoint вручную.
+
+## Как продолжить Pipeline?
+
+Вызовите `pai_pipeline_run` с тем же input и `resume: true`. Runtime повторно проверит definition/input/checksums и пропустит только подтверждённые completed steps.
+
+## Почему resume отклонён после изменения Action?
+
+Это защита от смешивания результатов разных версий кода. Начните pipeline заново или восстановите исходное definition/action; shim/fallback отсутствует намеренно.
+
+## Можно ли импортировать поверх существующего state?
+
+Нет. Import сохраняет no-overwrite invariant и сообщает conflict до записи. Импортируйте в пустой profile или вручную разрешите конфликт вне importer.
+
+## Почему `/pai-doctor` сообщает unsafe permissions?
+
+Любой group/world bit в `dataRoot` считается unsafe. Используйте `0700` для directories и `0600` для files, затем повторите doctor.
 
 ## Какие проверки обязательны перед release?
-Запускайте их из source checkout. Установленный artifact намеренно не содержит maintainer-only `scripts/`, `tests/` и `tsconfig.json`.
-
 
 ```bash
 bun run typecheck
@@ -55,5 +72,3 @@ bun run release:pack
 bun run test:lifecycle
 bun run smoke:install
 ```
-
-Проверки покрывают отдельные контракты: типы, поведение, allowlist, privacy/provenance, воспроизводимый архив, lifecycle functions и реальный OMP install/upgrade/uninstall.

@@ -5,6 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
+  rmSync,
   statSync,
   unlinkSync,
 } from "node:fs";
@@ -23,8 +25,15 @@ export type PrivateBundleManifest = {
   files: PrivateBundleFile[];
 };
 
+export type FileIdentity = {
+  dev: bigint;
+  ino: bigint;
+  birthtimeNs: bigint;
+};
+
 const PRIVATE_ROOTS = ["TELOS", "MEMORY"] as const;
 
+/** Validates the exact private archive manifest shape and entry metadata. */
 export function isPrivateBundleManifest(value: unknown): value is PrivateBundleManifest {
   if (
     value === null
@@ -52,6 +61,7 @@ export function isPrivateBundleManifest(value: unknown): value is PrivateBundleM
   );
 }
 
+/** Rejects archive paths outside the TELOS and MEMORY namespaces. */
 export function assertSafePrivatePath(path: string): void {
   const normalized = posix.normalize(path);
   if (
@@ -68,6 +78,7 @@ export function assertSafePrivatePath(path: string): void {
   }
 }
 
+/** Resolves a child beneath a configured root without allowing lexical escape. */
 export function safeLocalPath(root: string, child: string): string {
   const absoluteRoot = resolve(root);
   const target = resolve(absoluteRoot, child);
@@ -78,6 +89,7 @@ export function safeLocalPath(root: string, child: string): string {
   return target;
 }
 
+/** Enumerates regular private files while rejecting symlinks and special files. */
 export function listPrivateFiles(dataRoot: string): Array<{ path: string; absolutePath: string }> {
   const rootInfo = lstatSync(resolve(dataRoot), { throwIfNoEntry: false });
   if (!rootInfo) return [];
@@ -120,6 +132,7 @@ export function listPrivateFiles(dataRoot: string): Array<{ path: string; absolu
   return files.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+/** Streams a file into SHA-256 without loading it wholly into memory. */
 export async function sha256File(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
   for await (const chunk of createReadStream(path)) {
@@ -132,8 +145,23 @@ export async function sha256File(path: string): Promise<string> {
 
 
 
+function canonicalProspectivePath(path: string): string {
+  let current = resolve(path);
+  const missing: string[] = [];
+  while (!lstatSync(current, { throwIfNoEntry: false })) {
+    const parent = dirname(current);
+    if (parent === current) break;
+    missing.unshift(basename(current));
+    current = parent;
+  }
+  return resolve(realpathSync(current), ...missing);
+}
+
+/** Rejects archive destinations resolving inside the private data root. */
 export function assertArchiveOutsideDataRoot(dataRoot: string, archivePath: string): void {
-  const archiveRelative = relative(resolve(dataRoot), resolve(archivePath));
+  const canonicalRoot = canonicalProspectivePath(dataRoot);
+  const canonicalArchive = canonicalProspectivePath(archivePath);
+  const archiveRelative = relative(canonicalRoot, canonicalArchive);
   if (archiveRelative === "" || (archiveRelative !== ".." && !archiveRelative.startsWith(`..${sep}`))) {
     throw new Error("Private archive must be outside data root");
   }
@@ -141,19 +169,23 @@ export function assertArchiveOutsideDataRoot(dataRoot: string, archivePath: stri
 
 
 
+/** Reports whether an import destination already exists without following it. */
 export function destinationConflict(dataRoot: string, path: string): boolean {
   const destination = safeLocalPath(dataRoot, path);
   return lstatSync(destination, { throwIfNoEntry: false }) !== undefined;
 }
 
+/** Creates an owner-only archive parent directory when needed. */
 export function ensureArchiveParent(path: string): void {
-  mkdirSync(dirname(resolve(path)), { recursive: true });
+  mkdirSync(dirname(resolve(path)), { recursive: true, mode: 0o700 });
 }
 
+/** Returns the current byte size of a regular archive candidate. */
 export function fileSize(path: string): number {
   return statSync(path).size;
 }
 
+/** Derives the final archive path and a unique same-directory temporary path. */
 export function atomicArchivePaths(archivePath: string): { target: string; temporary: string } {
   const target = resolve(archivePath);
   return {
@@ -162,7 +194,47 @@ export function atomicArchivePaths(archivePath: string): { target: string; tempo
   };
 }
 
-export function commitArchive(temporary: string, target: string): void {
+/** Captures stable inode identity for a regular non-symlink file. */
+export function fileIdentity(path: string): FileIdentity {
+  const info = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+  if (!info?.isFile() || info.isSymbolicLink()) {
+    throw new Error(`Expected a safe regular file: ${path}`);
+  }
+  return { dev: info.dev, ino: info.ino, birthtimeNs: info.birthtimeNs };
+}
+
+/** Removes a path only when it still denotes the inode created by this operation. */
+export function removeOwnedPath(path: string, identity: FileIdentity): boolean {
+  const current = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+  if (
+    !current
+    || current.dev !== identity.dev
+    || current.ino !== identity.ino
+    || current.birthtimeNs !== identity.birthtimeNs
+  ) {
+    return false;
+  }
+  rmSync(path);
+  return true;
+}
+
+/** Publishes an archive with no-overwrite hard-link semantics and identity checks. */
+export function commitArchive(
+  temporary: string,
+  target: string,
+  expectedIdentity?: FileIdentity,
+): void {
+  const temporaryIdentity = fileIdentity(temporary);
+  if (
+    expectedIdentity
+    && (
+      temporaryIdentity.dev !== expectedIdentity.dev
+      || temporaryIdentity.ino !== expectedIdentity.ino
+      || temporaryIdentity.birthtimeNs !== expectedIdentity.birthtimeNs
+    )
+  ) {
+    throw new Error("Archive temporary file changed before commit");
+  }
   try {
     linkSync(temporary, target);
   } catch (error) {
@@ -176,5 +248,15 @@ export function commitArchive(temporary: string, target: string): void {
     }
     throw error;
   }
-  unlinkSync(temporary);
+
+  const targetIdentity = fileIdentity(target);
+  const destinationChanged = (
+    targetIdentity.dev !== temporaryIdentity.dev
+    || targetIdentity.ino !== temporaryIdentity.ino
+    || targetIdentity.birthtimeNs !== temporaryIdentity.birthtimeNs
+  );
+  // A successful hard link has the source identity unless an external writer wins this gap.
+  if (destinationChanged) { removeOwnedPath(target, targetIdentity); throw new Error("Archive destination identity mismatch"); }
+  // Failure is possible only through external filesystem interference.
+  try { unlinkSync(temporary); } catch (error) { removeOwnedPath(target, targetIdentity); throw error; }
 }

@@ -1,27 +1,51 @@
 # Pipelines
 
-Pipeline — детерминированная последовательность actions. Пользовательские definitions хранятся в `${dataRoot}/PAI/PIPELINES/` и не входят в release artifact.
+Pipeline — последовательность локальных Actions с checkpoint после каждого успешного шага.
 
 ## Definition
 
-```yaml
-schemaVersion: 1
-id: summarize-and-format
-steps:
-  - id: summarize
-    action: summarize
-    input: $pipeline.input
-  - id: format
-    action: format-markdown
-    input: $steps.summarize.output
+`${dataRoot}/PAI/PIPELINES/<pipelineId>.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "publish",
+  "steps": [
+    {
+      "id": "normalize",
+      "action": "normalize-title",
+      "input": "$pipeline.input"
+    },
+    {
+      "id": "format",
+      "action": "format-markdown",
+      "input": {
+        "title": "$steps.normalize.output.title"
+      }
+    }
+  ]
+}
 ```
 
-## Invariants
+Формальная schema: `${pluginRoot}/contracts/pipeline.schema.json`.
 
-- `id` шага уникален, порядок выполнения совпадает с порядком в definition.
-- Ссылка может указывать только на pipeline input или завершённый предыдущий шаг.
-- Каждый step проходит input/output validation своего action manifest.
-- Pipeline прекращается при первой ошибке и возвращает failed step без скрытого retry.
-- Resume разрешён только при совпадении definition checksum и checksums завершённых outputs.
-- Записи выполнения хранятся в `${memoryRoot}/STATE/pipelines/`; package templates остаются immutable.
-- Definition не содержит credentials, персональные значения, host paths или inline executable code.
+## References
+
+- `$pipeline.input` / `$pipeline.input.<property.path>`;
+- `$steps.<previous-step>.output` / `$steps.<previous-step>.output.<property.path>`.
+
+Ссылки можно помещать в nested objects/arrays. Строка, начинающаяся с `$`, считается ссылкой. Forward reference и отсутствующее property блокируют запуск.
+
+## Resume guarantees
+
+Checkpoint: `${dataRoot}/MEMORY/STATE/pipelines/<pipelineId>.json`.
+
+Runtime сохраняет для каждого completed step Action SHA-256, output и output SHA-256. Явный resume разрешён только при совпадении:
+
+- pipeline definition SHA-256;
+- initial input SHA-256;
+- checksum каждого completed output;
+- checksum каждого уже выполненного Action.
+- Action id каждого checkpoint entry совпадает с Action текущего step, а completed entries образуют строгий prefix pipeline.
+
+Pipeline прекращается на первой ошибке и возвращает `failedStep`; скрытого retry нет. OMP cancellation завершает активный Action, сохраняет failed checkpoint и пробрасывается вызывающему runtime.

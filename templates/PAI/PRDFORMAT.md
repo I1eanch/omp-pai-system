@@ -1,6 +1,6 @@
 # PRD Format
 
-Рабочая спецификация хранится в `${memoryRoot}/WORK/{YYYYMMDD-HHMMSS}_{slug}/PRD.md` и является единственным источником состояния Algorithm-сессии.
+Рабочая спецификация хранится в `${dataRoot}/MEMORY/WORK/<slug>/PRD.md` и является источником состояния только для действительно persistent workflow. Короткие задачи используют нативные OMP todo/goal без обязательного PRD.
 
 ## Frontmatter
 

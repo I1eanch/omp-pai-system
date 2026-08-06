@@ -6,7 +6,9 @@ import { initializePaiState } from "./commands/init.ts";
 import { exportPrivateState } from "./commands/private-export.ts";
 import { importPrivateState } from "./commands/private-import.ts";
 import { resolvePaiConfig, type ResolvePaiConfigInput } from "./config.ts";
-import { createPaiRuntimeGate } from "./runtime/pai-runtime-gate.ts";
+import { createPaiRuntime } from "./runtime/pai-runtime-gate.ts";
+import { registerPrdSyncHook } from "./state/prd.ts";
+import { registerPaiTools } from "./tools/pai-tools.ts";
 
 export type CreatePaiPluginInput = ResolvePaiConfigInput;
 
@@ -20,17 +22,18 @@ function localPathArgument(args: string, command: string): string {
   return value;
 }
 
+/** Builds the OMP extension entrypoint and registers runtime hooks, tools, and commands. */
 export function createPaiPlugin(input: CreatePaiPluginInput): (pi: ExtensionAPI) => void {
   const config = resolvePaiConfig(input);
-  const runtimeGate = createPaiRuntimeGate({
-    algorithmPath: config.algorithmPath,
-    algorithmVersion: config.algorithmVersion,
+  const runtime = createPaiRuntime({
     dataRoot: config.dataRoot,
-    paiTemplateRoot: join(config.pluginRoot, "templates", "PAI"),
+    skillRoot: join(config.pluginRoot, "skills"),
   });
 
   return (pi) => {
-    runtimeGate(pi);
+    runtime(pi);
+    registerPrdSyncHook(pi, config.dataRoot);
+    registerPaiTools(pi, { dataRoot: config.dataRoot });
     pi.registerCommand("pai-init", {
       description: "Initialize local PAI state without overwriting user files",
       handler: async (_args, context) => {
@@ -50,8 +53,6 @@ export function createPaiPlugin(input: CreatePaiPluginInput): (pi: ExtensionAPI)
         const report = runPaiDoctor({
           pluginRoot: config.pluginRoot,
           dataRoot: config.dataRoot,
-          algorithmPath: config.algorithmPath,
-          algorithmVersion: config.algorithmVersion,
         });
         const issues = report.checks
           .filter(({ status }) => status !== "pass")

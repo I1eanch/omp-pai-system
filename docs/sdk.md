@@ -1,8 +1,8 @@
 # Extension SDK
 
-`omp-pai-system` — OMP extension package, а не HTTP service. Public extension entrypoint находится в `src/index.ts`.
+`omp-pai-system` — OMP extension package, а не HTTP API.
 
-## Default extension
+## Entrypoint
 
 OMP обнаруживает extension через `package.json`:
 
@@ -14,94 +14,137 @@ OMP обнаруживает extension через `package.json`:
 }
 ```
 
-Default export уже сконфигурирован относительно установленного package root:
+Default export уже сконфигурирован относительно package root. Для embedded integration:
 
 ```ts
-export default createPaiPlugin({ pluginRoot });
-```
-
-Для обычной установки программная конфигурация не нужна.
-
-## `createPaiPlugin`
-
-```ts
-type CreatePaiPluginInput = {
-  pluginRoot: string;
-  env?: Record<string, string | undefined>;
-};
-
-function createPaiPlugin(
-  input: CreatePaiPluginInput,
-): (pi: ExtensionAPI) => void;
-```
-
-Пример source-level integration внутри доверенного OMP package:
-
-```ts
-import { createPaiPlugin } from "./src/index.ts";
+import { createPaiPlugin } from "omp-pai-system/src/index.ts";
 
 export default createPaiPlugin({
   pluginRoot: "/opt/omp/plugins/omp-pai-system",
   env: {
-    HOME: "/absolute/profile-home",
-    OMP_PAI_DATA_DIR: "/absolute/pai-data",
-  },
+    OMP_PAI_DATA_DIR: "/srv/private/pai"
+  }
 });
 ```
 
-`pluginRoot` нормализуется через `resolve()`. `env` полезен для изолированных tests; в production по умолчанию используется `process.env`.
+## Config API
 
-## Configuration result
+```ts
+resolvePaiConfig({ pluginRoot, env? }): PaiConfig
+```
 
-Внутренний resolver формирует:
+Результат:
 
 ```ts
 type PaiConfig = {
   pluginRoot: string;
   dataRoot: string;
-  algorithmPath: string;
-  algorithmVersion: string;
-  algorithmSource: "bundled-mit-v3.5.0" | "local-override";
 };
 ```
 
-Приоритет `dataRoot`:
+`pluginRoot` и `dataRoot` нормализуются через `resolve()`. Data root выбирается из `OMP_PAI_DATA_DIR`, затем `PI_CODING_AGENT_DIR/pai`, затем `~/.omp/agent/pai`.
 
-1. `OMP_PAI_DATA_DIR`;
-2. `${PI_CODING_AGENT_DIR}/pai`;
-3. `${HOME}/.omp/agent/pai` или `${USERPROFILE}/.omp/agent/pai`.
+## Runtime API
 
-Algorithm override обязан быть абсолютным local filesystem path. Версия обязана быть SemVer и берётся из `OMP_PAI_ALGORITHM_VERSION` либо имени файла.
+`src/runtime/pai-runtime-contract.ts`:
 
-## Зарегистрированные команды
+- `routePaiPrompt(prompt, isSubagent): PaiRoute` — pure deterministic classifier; delegated work по умолчанию получает `NATIVE`, явный ALGORITHM marker имеет приоритет.
+- `thinkingLevelForMode(mode)` — OMP thinking level.
+- `buildTurnPolicy(route, dataRoot)` — compact hidden turn-policy.
+- `isSubagentSystemPrompt(systemPrompt)` — определение subagent marker.
 
-`createPaiPlugin` регистрирует четыре OMP slash commands:
+`src/runtime/pai-runtime-gate.ts`:
 
-| Command | Args | Side effects |
-|---|---|---|
-| `pai-init` | нет | Создаёт отсутствующие starter files |
-| `pai-doctor` | нет | Нет; read-only diagnostics |
-| `pai-private-export` | local archive path | Создаёт проверяемый archive |
-| `pai-private-import` | local archive path | Импортирует только новые files после полной validation |
+- `createPaiRuntime({ dataRoot, skillRoot })` — регистрирует `before_agent_start` и `turn_end`.
 
-Command handlers сообщают краткий результат через `context.ui.notify`.
+Runtime использует только документированные OMP result shapes: replacement `systemPrompt`, `pi.setThinkingLevel()` и `pi.appendEntry()`.
 
-## Runtime hook contract
+## State APIs
 
-Extension подписывается на:
+### TELOS
 
-- `before_agent_start` — выбирает режим и chain-ит `string[]` system prompt без потери ранее добавленных блоков;
-- `before_provider_request` — для official Google и Gemini CLI payload shapes фиксирует deterministic preamble и минимально допустимый thinking mode модели;
-- `context` — добавляет скрытое continuation state без повторного header;
-- `message_start` / `message_update` — отслеживает видимый assistant text;
-- `tool_call` — блокирует нарушение mode/Algorithm protocol;
-- `tool_result` — подтверждает полное чтение Algorithm с учётом truncation metadata.
+```ts
+parseTelosRecord(content, path): TelosDocument
+readTelosRecords(dataRoot): TelosDocument[]
+queryTelos(dataRoot, query, limit?): TelosSearchResult[]
+appendTelosEntry(dataRoot, recordType, text, updated?): TelosDocument
+```
 
-Hooks возвращают только documented OMP result shapes: `string[]` replacement system prompt, raw provider payload, replacement messages либо `{ block: true, reason }` для запрещённого tool call.
+### MEMORY
 
-## Совместимость
+```ts
+parseMemoryRecord(value, line): MemoryRecord
+readMemoryRecords(dataRoot): MemoryRecord[]
+recordMemory(dataRoot, input): MemoryRecord
+rebuildMemoryIndex(dataRoot): { records; path }
+queryMemory(dataRoot, query, limit?): MemorySearchResult[]
+```
+
+### PRD
+
+```ts
+parsePrd(content, path): PrdDocument
+readPrd(dataRoot, slug): PrdDocument
+listPrds(dataRoot): PrdDocument[]
+writePrd(dataRoot, content): PrdDocument
+syncPrdRegistry(dataRoot): { sessions; path }
+registerPrdSyncHook(pi, dataRoot): void
+```
+
+Все state paths проходят lexical containment, полный ancestor symlink check и descriptor-based bounded reads/owner-only atomic writes через `src/state/safe-state.ts`.
+
+## Automation APIs
+
+### Action
+
+```ts
+loadActionManifest(dataRoot, actionId): ActionManifest
+actionDefinitionSha256(dataRoot, manifest): string
+executeAction(dataRoot, actionId, input, { signal? }): Promise<ActionExecutionReport>
+```
+
+### Flow
+
+```ts
+loadFlowDefinition(dataRoot, flowId): FlowDefinition & { sha256 }
+readFlowState(dataRoot, flowId): FlowRunState | null
+runFlow(dataRoot, flowId, input, { resume?, maxSteps?, signal? }): Promise<FlowRunReport>
+```
+
+### Pipeline
+
+```ts
+loadPipelineDefinition(dataRoot, pipelineId): PipelineDefinition & { sha256 }
+readPipelineState(dataRoot, pipelineId): PipelineRunState | null
+runPipeline(dataRoot, pipelineId, input, { resume?, signal? }): Promise<PipelineRunReport>
+```
+
+Formal JSON Schemas Draft 2020-12 находятся в `contracts/`; Action schema отдельно описывает весь fail-closed runtime subset. OMP tool handlers передают свой `AbortSignal` в Action, Flow и Pipeline без адаптеров.
+
+## Registered OMP surface
+
+Tools:
+
+- `pai_context`
+- `pai_telos_append`
+- `pai_memory_record`
+- `pai_prd`
+- `pai_action_run`
+- `pai_flow_run`
+- `pai_pipeline_run`
+
+Commands:
+
+- `/pai-init`
+- `/pai-doctor`
+- `/pai-memory-reindex`
+- `/pai-prd-sync`
+- `/pai-private-export <local-path>`
+- `/pai-private-import <local-path>`
+
+## Compatibility
 
 - Runtime: Bun `>=1.3.0`.
-- Peer dependency: `@oh-my-pi/pi-coding-agent` `^16.4.8`; minimum `16.4.8` и current `16.5.1` проверены strict TypeScript gate, runtime suite и реальным `ExtensionRunner`.
-- HTTP endpoints отсутствуют, поэтому OpenAPI contract неприменим.
-- Отдельный compiled JavaScript SDK пока не публикуется; OMP загружает TypeScript entrypoint напрямую.
+- Peer dependency: `@oh-my-pi/pi-coding-agent ^16.4.8`.
+- Проверенный development runtime: `16.5.x`.
+- Strict TypeScript, ESM и `.ts` imports.

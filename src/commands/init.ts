@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   constants,
+  chmodSync,
   copyFileSync,
   lstatSync,
   mkdirSync,
@@ -9,7 +10,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { resolveStatePath } from "../state/safe-state.ts";
 
 export type InitializePaiStateInput = {
   pluginRoot: string;
@@ -63,13 +65,7 @@ const STATE_DIRECTORIES = [
 ] as const;
 
 function safeChild(root: string, child: string): string {
-  const absoluteRoot = resolve(root);
-  const absoluteChild = resolve(absoluteRoot, child);
-  const childRelative = relative(absoluteRoot, absoluteChild);
-  if (childRelative === ".." || childRelative.startsWith(`..${sep}`)) {
-    throw new Error(`Path escapes configured root: ${child}`);
-  }
-  return absoluteChild;
+  return resolveStatePath(root, child);
 }
 
 function ensureDirectory(root: string, relativePath: string): void {
@@ -84,12 +80,12 @@ function ensureDirectory(root: string, relativePath: string): void {
   if (existing) return;
 
   if (relativePath === "." || relativePath === "") {
-    mkdirSync(target, { recursive: true });
+    mkdirSync(target, { recursive: true, mode: 0o700 });
     return;
   }
 
   ensureDirectory(root, dirname(relativePath));
-  mkdirSync(target);
+  mkdirSync(target, { mode: 0o700 });
 }
 
 function copyStarter(
@@ -120,6 +116,7 @@ function copyStarter(
   }
 
   copyFileSync(source, destination, constants.COPYFILE_EXCL);
+  chmodSync(destination, 0o600);
   report.created.push(destinationPath);
 }
 
@@ -141,6 +138,7 @@ function fileSha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+/** Reads and validates the package ownership manifest without following symlinks. */
 export function readOwnership(dataRoot: string): OwnershipManifest | null {
   const path = safeChild(dataRoot, OWNERSHIP_PATH);
   const info = lstatSync(path, { throwIfNoEntry: false });
@@ -208,6 +206,7 @@ function writeOwnership(
   }
 }
 
+/** Idempotently installs missing starter state while preserving all user files. */
 export function initializePaiState(
   input: InitializePaiStateInput,
 ): InitializePaiStateReport {

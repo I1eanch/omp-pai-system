@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-Пока нет.
+### Added
+
+- OMP-native TELOS, MEMORY и PRD runtime: validation, indexed retrieval, safe mutation и registry synchronization.
+- Declarative Actions, resumable Flows и checksum-bound Pipelines с native tools `pai_action_run`, `pai_flow_run` и `pai_pipeline_run`.
+- Unified runtime contract, persisted route metadata и discoverable `pai-deep-work` skill.
+- Machine-readable JSON Schemas для Action, Flow, Pipeline и MEMORY record contracts.
+- Сквозная OMP cancellation для Action, Flow и Pipeline через `AbortSignal` с process-tree cleanup.
+
+### Changed
+
+- Routing переведён на native OMP hooks и model thinking levels; видимые mode headers, `TASK:` ritual, обязательное полное чтение Algorithm и TTS удалены.
+- `pai-doctor` теперь проверяет package metadata, skill/templates, ownership, schemas, automation definitions, state permissions и private paths.
+- Документация и starter contracts описывают portable roots, context routing, approvals, resumability и local-only private state.
+- Public runtime APIs документированы JSDoc; SDK и routing docs синхронизированы с фактическим subagent `NATIVE` default.
+
+### Security
+
+- Private export использует snapshot regular-file handles и atomic no-overwrite commit.
+- Private import стал bounded streaming pipeline с fail-closed archive validation, checksums, no-overwrite linking и rollback без удаления конкурентных записей.
+- Persisted MEMORY records теперь fail-closed отклоняют unknown fields, oversized text и неподтверждённые personal facts/preferences.
+- Release allowlist и provenance включают только distributable native skill и machine-readable contracts.
+
+### Verification
+
+- Source test coverage: 100% functions и 100% lines.
+- Полный typecheck/test/release gate и реальный OMP install/list/doctor/upgrade/uninstall lifecycle проходят.
 
 ## 0.1.0 - 2026-07-14
 
