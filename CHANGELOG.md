@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## Устарело — 2026-09-25
+
+- Проект больше не используется в харнесе OMP: обвязка PAI снята, её заменил Algorithm 4.1-omp в [I1eanch/skills](https://github.com/I1eanch/skills/tree/main/algorithm).
+- Состояние runtime, которое работало в OMP до перехода, сохранено в ветке `archive/final-runtime-20260924`.
+- Изменения из раздела Unreleased ниже в харнес не устанавливались.
+
 ## Unreleased
 
 ### Added

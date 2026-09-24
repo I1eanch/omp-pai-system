@@ -1,5 +1,21 @@
 # omp-pai-system
 
+> [!WARNING]
+> **Проект устарел с 2026-09-24 и больше не развивается.**
+>
+> В харнесе OMP обвязка PAI (режимы MINIMAL / NATIVE / ALGORITHM LIGHT / ALGORITHM, заголовки, `TASK` из восьми слов, runtime gate) полностью снята. Вместо неё работает **Algorithm 4.1-omp** — скилл и extension в [I1eanch/skills](https://github.com/I1eanch/skills/tree/main/algorithm):
+>
+> - `algorithm/SKILL.md` — метод: дословная цель, проверяемые критерии с доказательствами, независимая проверка, Ask Check;
+> - `algorithm/extension/algorithm-guard.ts` — детерминированные проверки PRD и подсказки после разрушающих операций;
+> - `algorithm/isa-check.ts` и `ISA-FORMAT.md` — живой ISA проекта с автоматическими проверками и кешем.
+>
+> Что осталось в этом репозитории:
+>
+> - `main` — версия с Actions, Flows и Pipelines (август 2026); в харнес она не устанавливалась.
+> - ветка [`archive/final-runtime-20260924`](https://github.com/I1eanch/omp-pai-system/tree/archive/final-runtime-20260924) — состояние runtime gate, которое фактически работало в OMP до перехода (набор тестов на момент архивации: 38 pass / 6 fail — устаревшие ожидания holdout-тестов).
+>
+> Описание ниже сохранено как историческое.
+
 `omp-pai-system` — локальный runtime для Personal AI Infrastructure (PAI) внутри [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi). Пакет подключается как OMP extension, выбирает подходящий режим мышления для каждого запроса, предоставляет структурированную долговременную память и запускает контролируемые локальные автоматизации.
 
 Текущая версия: `0.1.0`.
