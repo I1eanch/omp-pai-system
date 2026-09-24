@@ -59,11 +59,14 @@ export default createPaiPlugin({
 type PaiConfig = {
   pluginRoot: string;
   dataRoot: string;
+  profileRoot: string;
   algorithmPath: string;
   algorithmVersion: string;
   algorithmSource: "bundled-mit-v3.5.0" | "local-override";
 };
 ```
+
+`profileRoot` берётся из `PI_CODING_AGENT_DIR`, затем из `${HOME}/.omp/agent` или `${USERPROFILE}/.omp/agent`. Без profile root resolver завершается ошибкой.
 
 Приоритет `dataRoot`:
 
@@ -79,8 +82,8 @@ Algorithm override обязан быть абсолютным local filesystem p
 
 | Command | Args | Side effects |
 |---|---|---|
-| `pai-init` | нет | Создаёт отсутствующие starter files |
-| `pai-doctor` | нет | Нет; read-only diagnostics |
+| `pai-init` | нет | Создаёт starter files и profile-level `WATCHDOG.yml`; сохраняет существующий `.yml`/`.yaml`; при создании contract требует restart OMP |
+| `pai-doctor` | нет | Read-only diagnostics, включая safety и role-boundary marker Advisor contract |
 | `pai-private-export` | local archive path | Создаёт проверяемый archive |
 | `pai-private-import` | local archive path | Импортирует только новые files после полной validation |
 
@@ -90,7 +93,7 @@ Command handlers сообщают краткий результат через `
 
 Extension подписывается на:
 
-- `before_agent_start` — выбирает режим и chain-ит `string[]` system prompt без потери ранее добавленных блоков;
+- `before_agent_start` — внедряет four-mode routing contract; main agent выбирает семантический режим, а hook chain-ит `string[]` system prompt без потери ранее добавленных блоков;
 - `before_provider_request` — для official Google и Gemini CLI payload shapes фиксирует deterministic preamble и минимально допустимый thinking mode модели;
 - `context` — добавляет скрытое continuation state без повторного header;
 - `message_start` / `message_update` — отслеживает видимый assistant text;

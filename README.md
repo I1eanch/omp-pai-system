@@ -7,9 +7,9 @@ Portable runtime для PAI, Algorithm, TELOS и MEMORY в Oh My Pi (OMP).
 ## Возможности
 
 - Инициализирует локальные `TELOS`, `MEMORY` и PAI-шаблоны без перезаписи пользовательских файлов.
-- Принудительно маршрутизирует каждый основной запрос в `MINIMAL`, `NATIVE` или `ALGORITHM`.
-- Для `ALGORITHM` требует точный mode header, фиксированную строку `TASK` и полное чтение bundled Algorithm до других tool calls.
-- Поддерживает локальный override Algorithm без сетевой загрузки.
+- Принудительно маршрутизирует каждый основной запрос в `MINIMAL`, `NATIVE`, `ALGORITHM LIGHT` или `ALGORITHM`.
+- Для `ALGORITHM LIGHT` требует точный mode header и восьмисловную строку `TASK`, но запрещает чтение полного Algorithm-файла и run-PRD церемонию.
+- Для полного `ALGORITHM` дополнительно требует полное чтение bundled Algorithm до других tool calls.
 - Проверяет состояние установки read-only командой `pai-doctor`.
 - Экспортирует и импортирует приватные `TELOS`/`MEMORY` архивы с SHA-256, проверкой путей и запретом перезаписи.
 - Поставляется через allowlisted staging и проверяемый release archive.
@@ -36,8 +36,8 @@ graph TD
 ### Полный список хуков жизненного цикла OMP:
 
 1. **`before_agent_start`**:
-   - Классифицирует входящий запрос пользователя на `MINIMAL`, `NATIVE` или `ALGORITHM`.
-   - Внедряет управляющие PAI-инструкции в системный промпт (`systemPrompt`), поддерживая цепочечное объединение промптов (`string[]` chaining).
+   - Внедряет контракт, по которому main agent выбирает `MINIMAL`, `NATIVE`, `ALGORITHM LIGHT` или `ALGORITHM`; runtime сам не классифицирует семантику prompt.
+   - Внедряет управляющие PAI-инструкции в системный prompt (`systemPrompt`), поддерживая цепочечное объединение (`string[]` chaining).
 
 2. **`before_provider_request`**:
    - Модифицирует низкоуровневый payload провайдера (Google Generative AI и Gemini CLI).
@@ -53,9 +53,9 @@ graph TD
    - Заменяет локально отслеживаемый текст ассистента последним извлечённым значением для последующей проверки в `tool_call`.
 
 6. **`tool_call`**:
-   - Контролирует вызовы инструментов. Требует наличия обязательного заголовка режима и строки `TASK` в выводе ассистента (разрешён только один экземпляр за ход).
-   - В режиме `ALGORITHM` блокирует вызов любых других инструментов до тех пор, пока не будет выполнен полный последовательный запуск чтения файла Алгоритма.
-   - Проверяет путь и селектор первого чтения Алгоритма, отклоняя попытки обхода (Path-Bypass Protection).
+   - Контролирует вызовы инструментов. Требует обязательный заголовок режима и восьмисловную строку `TASK` для `NATIVE`, `ALGORITHM LIGHT` и `ALGORITHM` (разрешён только один экземпляр за ход).
+   - В `ALGORITHM LIGHT` блокирует чтение полного Algorithm-файла. В полном `ALGORITHM` блокирует другие инструменты до полного последовательного чтения файла.
+   - Проверяет путь и selector первого чтения полного Algorithm, отклоняя попытки обхода (Path-Bypass Protection).
 
 7. **`tool_result`**:
    - Валидирует результат чтения Алгоритма, отслеживает маркеры усечения результата чтения (`truncation`) и переводит состояние плагина в `algorithmReadApproved = true` после полного прочтения файла.
@@ -75,6 +75,14 @@ bun run build:staging
 omp plugin install "$PWD/dist/staging" --force --json
 ```
 
+### Host-side оптимизация Advisor для OMP 16.5.1
+
+PAI routing работает как extension. Финальный запуск Advisor требует изменения host runtime, поэтому patch [`patches/@oh-my-pi%2Fpi-coding-agent@16.5.1.patch`](patches/@oh-my-pi%2Fpi-coding-agent@16.5.1.patch) применяется только к точной версии `@oh-my-pi/pi-coding-agent@16.5.1`.
+
+Из source checkout достаточно `bun install`: корневой `patchedDependencies` применит patch. В другом top-level host checkout скопируйте patch, добавьте ту же запись `patchedDependencies` в его `package.json` и выполните `bun install`. Patch изменяет `src`, но не переписывает готовый `dist/cli.js`; запускайте `src/cli.ts` через Bun либо пересоберите OMP из monorepo.
+
+Локальный rollback: верните предыдущий launcher OMP и уберите host-side `patchedDependencies`. Не применяйте patch к другой версии пакета.
+
 После установки в OMP:
 
 ```text
@@ -92,20 +100,23 @@ omp plugin doctor omp-pai-system --json
 
 | Команда | Назначение |
 |---|---|
-| `/pai-init` | Создать отсутствующие starter files; существующие файлы сохранить |
-| `/pai-doctor` | Выполнить read-only health checks PAI runtime и private state |
+| `/pai-init` | Создать отсутствующие starter files и профильный Advisor contract; существующие файлы сохранить |
+| `/pai-doctor` | Выполнить read-only health checks PAI runtime, Advisor contract и private state |
 | `/pai-private-export <local-path>` | Экспортировать `TELOS` и `MEMORY` в локальный `.tar.gz` |
 | `/pai-private-import <local-path>` | Проверить и импортировать архив без перезаписи файлов |
 
 Пути с пробелами можно заключать в одинарные или двойные кавычки.
 
+`/pai-init` создаёт `WATCHDOG.yml` в корне OMP profile только при отсутствии обоих вариантов: `WATCHDOG.yml` и `WATCHDOG.yaml`. Существующая конфигурация Advisor не перезаписывается. Если contract создан, перезапустите OMP: SDK загружает Advisor configuration при старте сессии.
+
 ## Режимы PAI
 
-- `MINIMAL` — приветствия, подтверждения, оценки; tool calls запрещены.
-- `NATIVE` — один короткий атомарный запрос или subagent без явного Algorithm opt-in.
-- `ALGORITHM` — сложные, многошаговые и неоднозначные запросы; также безопасный fallback для нераспознанных запросов основного агента.
+- `MINIMAL` — приветствия, чистые подтверждения и оценки; tool calls запрещены.
+- `NATIVE` — короткие одношаговые задачи, обычные исследования, объяснения и read-only проверки; несколько inspection calls сами по себе не повышают режим.
+- `ALGORITHM LIGHT` — ограниченная умеренная многошаговая работа без high-risk границы: scope → execute → verify, без чтения полного Algorithm, run PRD, ISC и reflection.
+- `ALGORITHM` — только high-risk implementation/debugging: production, data loss, migrations, security/auth, payments, destructive/irreversible или широкие cross-system изменения; также явный запрос пользователя на полный режим.
 
-Runtime gate проверяет видимый первый text block, а не hidden reasoning. После принятия mode header повторный header или `TASK` в tool loop блокируется.
+Runtime gate проверяет видимый первый text block, а не hidden reasoning. После принятия mode header повторный header или `TASK` в tool loop блокируется. При сомнении выбирайте более лёгкий соседний режим: `NATIVE` вместо `LIGHT`, `LIGHT` вместо полного `ALGORITHM`.
 
 ## Конфигурация
 

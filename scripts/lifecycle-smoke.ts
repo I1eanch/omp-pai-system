@@ -60,7 +60,11 @@ try {
     existsSync(join(installedPackageRoot, "templates/MEMORY/STATE/work.schema.json")),
     true,
   );
-  initializePaiState({ pluginRoot: installedPackageRoot, dataRoot });
+  initializePaiState({ pluginRoot: installedPackageRoot, dataRoot, profileRoot: agentRoot });
+  assert.match(
+    readFileSync(join(agentRoot, "WATCHDOG.yml"), "utf8"),
+    /ADVISOR IS NOT A PAI EXECUTOR/u,
+  );
   const goalsPath = join(dataRoot, "TELOS/GOALS.md");
   writeFileSync(goalsPath, "preserve across lifecycle\n");
 

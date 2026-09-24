@@ -32,6 +32,16 @@
       "distributable": true
     },
     {
+      "id": "advisor-final-turn-patch",
+      "source": "https://github.com/can1357/oh-my-pi/tree/v16.5.1/packages/coding-agent",
+      "version": "16.5.1",
+      "paths": ["patches/@oh-my-pi%2Fpi-coding-agent@16.5.1.patch"],
+      "author": "Oh My Pi contributors; local patch by Nikolay Kovelin with AI assistance",
+      "license": "MIT",
+      "distributable": true,
+      "constraint": "Defers Advisor WIP snapshots, dispatches one accumulated review after the final primary turn, and treats an explicit empty assistant stop as intentional silence without retries."
+    },
+    {
       "id": "portable-pai-templates",
       "source": "original package documentation and contracts",
       "paths": ["templates/PAI/**"],
@@ -51,6 +61,7 @@
         "CHANGELOG.md",
         "docs/**",
         "src/**",
+        "templates/WATCHDOG.yml",
         "contracts/**",
         "privacy/**"
       ],

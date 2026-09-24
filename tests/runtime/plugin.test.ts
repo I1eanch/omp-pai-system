@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { createPaiPlugin } from "../../src/index.ts";
 
@@ -55,6 +55,24 @@ assert.match(commands["pai-init"].description, /Initialize local PAI state/u);
 assert.equal(typeof commands["pai-private-export"]?.handler, "function");
 assert.equal(typeof commands["pai-private-import"]?.handler, "function");
 assert.equal(typeof commands["pai-doctor"]?.handler, "function");
+
+const initCommands: Record<string, CommandDefinition> = {};
+const initNotifications: string[] = [];
+createPaiPlugin({
+  pluginRoot: resolve(import.meta.dir, "../.."),
+  env: { PI_CODING_AGENT_DIR: join(overrideRoot, "profile") },
+})({
+  on: () => {},
+  registerCommand: (name: string, definition: CommandDefinition) => {
+    initCommands[name] = definition;
+  },
+} as unknown as ExtensionAPI);
+await initCommands["pai-init"].handler("", {
+  ui: {
+    notify: (message: string) => initNotifications.push(message),
+  },
+});
+assert.match(initNotifications.at(-1) ?? "", /Restart OMP to activate Advisor contract/u);
 
 const startResult = await handlers.before_agent_start({
   prompt: "диагностируй сложный сбой",

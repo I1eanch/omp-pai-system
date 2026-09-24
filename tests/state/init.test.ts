@@ -28,14 +28,16 @@ afterEach(() => {
 });
 
 describe("initializePaiState", () => {
-  test("creates portable TELOS, MEMORY, and PAI state locally", () => {
+  test("creates portable state and installs a discoverable Advisor contract", async () => {
     const dataRoot = tempDataRoot();
-    const report = initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    const profileRoot = resolve(dataRoot, "..");
+    const report = initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot });
 
     expect(report.created).toContain("TELOS/GOALS.md");
     expect(report.created).toContain("MEMORY/STATE/work.json");
     expect(report.directories).toContain("MEMORY/WORK");
     expect(report.directories).toContain("PAI/ACTIONS");
+    expect(report.profileCreated).toEqual(["WATCHDOG.yml"]);
     expect(existsSync(join(dataRoot, "PAI/FLOWS"))).toBe(true);
     expect(existsSync(join(dataRoot, "PAI/PIPELINES"))).toBe(true);
     expect(readFileSync(join(dataRoot, "MEMORY/STATE/work.json"), "utf8")).toBe(
@@ -45,6 +47,19 @@ describe("initializePaiState", () => {
       join(dataRoot, "MEMORY/LEARNING/REFLECTIONS/algorithm-reflections.jsonl"),
       "utf8",
     )).toBe("");
+    const watchdog = readFileSync(join(profileRoot, "WATCHDOG.yml"), "utf8");
+    expect(watchdog).toContain("ADVISOR IS NOT A PAI EXECUTOR");
+    expect(watchdog).toContain("Never request a post-hoc continuation");
+    expect(watchdog).toContain("Mode selection is outside Advisor's scope");
+    expect(watchdog).toContain('“ты здесь?” and “как дела?” are valid NATIVE');
+    // Isolate OMP's internal TS sources from this package's compile graph.
+    const { discoverAdvisorConfigs } = await import(
+      join(packageRoot, "node_modules/@oh-my-pi/pi-coding-agent/src/advisor/config.ts")
+    );
+    const discovered = await discoverAdvisorConfigs(dataRoot, profileRoot);
+    expect(discovered.advisors).toEqual([]);
+    expect(discovered.sharedInstructions).toContain("ADVISOR IS NOT A PAI EXECUTOR");
+    expect(discovered.sharedInstructions).not.toContain("instructions: |");
     const ownership = JSON.parse(
       readFileSync(join(dataRoot, ".omp-pai-ownership.json"), "utf8"),
     ) as {
@@ -62,26 +77,47 @@ describe("initializePaiState", () => {
 
   test("is idempotent and preserves user changes and unknown files", () => {
     const dataRoot = tempDataRoot();
-    initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    const profileRoot = resolve(dataRoot, "..");
+    initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot });
     const goalsPath = join(dataRoot, "TELOS/GOALS.md");
+    const watchdogPath = join(profileRoot, "WATCHDOG.yml");
     const userGoals = "user-owned goals\n";
+    const userWatchdog = "instructions: user-owned advisor rules\n";
 
     writeFileSync(goalsPath, userGoals);
+    writeFileSync(watchdogPath, userWatchdog);
     writeFileSync(join(dataRoot, "TELOS/LOCAL.md"), "private local record\n");
 
-    const repeated = initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    const repeated = initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot });
 
     expect(repeated.created).toEqual([]);
     expect(repeated.skipped).toContain("TELOS/GOALS.md");
     expect(readFileSync(goalsPath, "utf8")).toBe(userGoals);
+    expect(repeated.profileSkipped).toEqual(["WATCHDOG.yml"]);
+    expect(readFileSync(watchdogPath, "utf8")).toBe(userWatchdog);
     expect(readFileSync(join(dataRoot, "TELOS/LOCAL.md"), "utf8")).toBe(
       "private local record\n",
     );
   });
 
+  test("preserves an existing WATCHDOG.yaml alias without creating WATCHDOG.yml", () => {
+    const dataRoot = tempDataRoot();
+    const profileRoot = resolve(dataRoot, "..");
+    const yamlPath = join(profileRoot, "WATCHDOG.yaml");
+    mkdirSync(profileRoot, { recursive: true });
+    writeFileSync(yamlPath, "instructions: user-owned yaml advisor rules\n");
+
+    const report = initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot });
+
+    expect(report.profileCreated).toEqual([]);
+    expect(report.profileSkipped).toEqual(["WATCHDOG.yaml"]);
+    expect(readFileSync(yamlPath, "utf8")).toBe("instructions: user-owned yaml advisor rules\n");
+    expect(existsSync(join(profileRoot, "WATCHDOG.yml"))).toBe(false);
+  });
+
   test("rejects ownership entries outside the exact starter allowlist", () => {
     const dataRoot = tempDataRoot();
-    initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") });
     writeFileSync(
       join(dataRoot, ".omp-pai-ownership.json"),
       `${JSON.stringify({
@@ -92,13 +128,13 @@ describe("initializePaiState", () => {
       })}\n`,
     );
 
-    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot }))
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") }))
       .toThrow("Invalid ownership manifest");
   });
 
   test("rejects malformed ownership entries before filesystem access", () => {
     const dataRoot = tempDataRoot();
-    initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") });
     writeFileSync(
       join(dataRoot, ".omp-pai-ownership.json"),
       `${JSON.stringify({
@@ -109,7 +145,7 @@ describe("initializePaiState", () => {
       })}\n`,
     );
 
-    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot }))
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") }))
       .toThrow("Invalid ownership manifest");
   });
 
@@ -119,7 +155,7 @@ describe("initializePaiState", () => {
     mkdirSync(join(dataRoot, "TELOS"), { recursive: true });
     symlinkSync(outside, join(dataRoot, "TELOS/GOALS.md"));
 
-    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot })).toThrow(
+    expect(() => initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") })).toThrow(
       "Refusing symlink destination",
     );
     expect(existsSync(join(outside, "GOALS.md"))).toBe(false);

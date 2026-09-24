@@ -4,7 +4,15 @@
 
 ## Unreleased
 
-Пока нет.
+### Fixed
+
+- Runtime gate снова делегирует выбор режима main-agent активному PAI contract, принимает динамическое восьмисловное `TASK`-описание, требует пересчитать и без перефразирования вывести проверенный финальный draft и не подменяет финальные поля PAI фиксированным текстом.
+- Advisor отделён от PAI executor: profile-level `WATCHDOG.yml` запрещает Advisor входить в Algorithm и запускать post-hoc user-facing продолжения; `/pai-init`, `/pai-doctor`, staging и lifecycle smoke сохраняют этот contract переносимым.
+- Добавлен `ALGORITHM LIGHT` для ограниченной умеренной многошаговой работы: inline `scope → execute → verify`, без чтения полного Algorithm, run PRD, ISC и reflection; исследования, объяснения и read-only проверки остаются в `NATIVE`, полный `ALGORITHM` ограничен high-risk implementation/debugging.
+- Advisor scheduling пропускает WIP snapshots при `willContinue:true`, отправляет один накопленный review-turn после финального ответа и принимает пустой `stop` как штатное отсутствие замечаний без трёх retries; source checkout применяет host fix через Bun `patchedDependency`, а release archive включает patch для явного host-side применения.
+- Full ALGORITHM continuation принимает оба фактических формата `read`: legacy `{ path, selector }` и inline selector в `path` (`…v3.7.0.md:301-386`), сохраняя строгую проверку полного чтения.
+- Direct-loader установка регистрирует `/pai-doctor` без второго runtime gate; active doctor проверяет Algorithm v3.7, PAI templates, split-root `MEMORY`, vault-backed `TELOS` и Advisor boundary.
+- Gemini 3.8 Flash wire-модели получают минимально поддерживаемый `thinkingLevel: LOW` до подтверждения PAI header вместо отклоняемого Cloud Code Assist значения `MINIMAL`.
 
 ## 0.1.0 - 2026-07-14
 

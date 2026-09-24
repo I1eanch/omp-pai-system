@@ -25,6 +25,7 @@ describe("resolvePaiConfig", () => {
     });
 
     expect(config.dataRoot).toBe("/tmp/profile/agent/pai");
+    expect(config.profileRoot).toBe("/tmp/profile/agent");
     expect(config.algorithmPath).toBe(
       "/opt/omp/plugins/omp-pai-system/templates/Algorithm/v3.5.0.md",
     );

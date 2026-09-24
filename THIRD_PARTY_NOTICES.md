@@ -32,6 +32,10 @@
 - License: MIT
 - Use: peer-only type and runtime API; not bundled in this package.
 
+### Local Advisor lifecycle patch
+
+`patches/@oh-my-pi%2Fpi-coding-agent@16.5.1.patch` modifies the MIT-licensed peer package source and its tests so Advisor defers WIP snapshots, reviews only the accumulated final turn, and accepts an explicit empty assistant stop as intentional silence without retries. The patch remains under the upstream MIT terms reproduced below.
+
 ## MIT License Text
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:

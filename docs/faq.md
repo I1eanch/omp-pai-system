@@ -8,17 +8,17 @@
 
 Нет. Команда создаёт только отсутствующие starter files. Существующие файлы учитываются как `skipped` и сохраняются.
 
-## Почему обычный запрос попал в ALGORITHM?
+## Почему обычный запрос попал в полный ALGORITHM?
 
-Для main agent ALGORITHM — безопасный fallback. Только приветствия/подтверждения попадают в MINIMAL, а короткие однозначные действия и вопросы — в NATIVE. Нераспознанный запрос не занижается до NATIVE.
+По действующему контракту обычные исследования, объяснения и read-only проверки должны оставаться в `NATIVE`, а ограниченная умеренная многошаговая работа — в `ALGORITHM LIGHT`. Полный `ALGORITHM` нужен только для high-risk implementation/debugging: production incidents, data loss, migrations, security/auth, payments, destructive/irreversible или широких cross-system изменений. Если риск неоднозначен, выбирается более лёгкий соседний режим.
 
 ## Почему tool call заблокирован сразу после mode header?
 
 Проверьте три условия:
 
-1. Header видим и дословно совпадает с активным режимом.
-2. Следующая строка дословно совпадает с фиксированной `TASK` runtime gate.
-3. Для ALGORITHM первый tool — `read` configured Algorithm path без selector.
+1. Header видим и дословно совпадает с одним активным режимом.
+2. Для `NATIVE`, `ALGORITHM LIGHT` и `ALGORITHM` следующая строка начинается с `🗒️ TASK:` и содержит ровно восемь слов после prefix.
+3. `ALGORITHM LIGHT` не может читать Algorithm-файл; для полного `ALGORITHM` первый tool — `read` configured Algorithm path без selector.
 
 Hidden reasoning не удовлетворяет этим условиям.
 

@@ -42,7 +42,7 @@ afterEach(() => {
 describe("private export/import", () => {
   test("round-trips TELOS and MEMORY with checksummed binary-safe contents", async () => {
     const sourceRoot = join(temporaryRoot("source"), "pai");
-    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot, profileRoot: resolve(sourceRoot, "..") });
     writeFixture(join(sourceRoot, "TELOS/GOALS.md"), "private goals\n");
     writeFixture(join(sourceRoot, "MEMORY/WORK/session/PRD.md"), "# private work\n");
     writeFixture(join(sourceRoot, "MEMORY/RAW/blob.bin"), new Uint8Array([0, 1, 2, 255]));
@@ -72,7 +72,7 @@ describe("private export/import", () => {
 
   test("rejects source, destination, and archive-path symlinks", async () => {
     const dataRoot = join(temporaryRoot("unsafe-source"), "pai");
-    initializePaiState({ pluginRoot: packageRoot, dataRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot, profileRoot: resolve(dataRoot, "..") });
     const outside = join(temporaryRoot("outside"), "secret.txt");
     writeFixture(outside, "secret\n");
     symlinkSync(outside, join(dataRoot, "TELOS/link.md"));
@@ -90,7 +90,7 @@ describe("private export/import", () => {
     })).rejects.toThrow("outside data root");
 
     const cleanDataRoot = join(temporaryRoot("clean-source"), "pai");
-    initializePaiState({ pluginRoot: packageRoot, dataRoot: cleanDataRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot: cleanDataRoot, profileRoot: resolve(cleanDataRoot, "..") });
     const linkedDataRoot = join(temporaryRoot("linked-data-root"), "pai");
     symlinkSync(cleanDataRoot, linkedDataRoot);
     await expect(exportPrivateState({
@@ -110,7 +110,7 @@ describe("private export/import", () => {
 
   test("rejects checksum tampering before writing any target file", async () => {
     const sourceRoot = join(temporaryRoot("tamper-source"), "pai");
-    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot, profileRoot: resolve(sourceRoot, "..") });
     writeFixture(join(sourceRoot, "TELOS/GOALS.md"), "authentic\n");
     const archivePath = join(temporaryRoot("tamper-archive"), "state.tar.gz");
     await exportPrivateState({ dataRoot: sourceRoot, archivePath });
@@ -147,7 +147,7 @@ describe("private export/import", () => {
       .rejects.toThrow("Unsafe manifest path");
 
     const sourceRoot = join(temporaryRoot("conflict-source"), "pai");
-    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot });
+    initializePaiState({ pluginRoot: packageRoot, dataRoot: sourceRoot, profileRoot: resolve(sourceRoot, "..") });
     writeFixture(join(sourceRoot, "TELOS/GOALS.md"), "from archive\n");
     const archivePath = join(temporaryRoot("conflict-archive"), "state.tar.gz");
     await exportPrivateState({ dataRoot: sourceRoot, archivePath });

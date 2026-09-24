@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 export type PaiConfig = {
   pluginRoot: string;
   dataRoot: string;
+  profileRoot: string;
   algorithmPath: string;
   algorithmVersion: string;
   algorithmSource: "bundled-mit-v3.5.0" | "local-override";
@@ -47,17 +48,20 @@ export function resolvePaiConfig(input: ResolvePaiConfigInput): PaiConfig {
   }
 
   const home = env.HOME ?? env.USERPROFILE;
-  const profileRoot = env.PI_CODING_AGENT_DIR ?? (home ? join(home, ".omp", "agent") : undefined);
+  const profileRootValue = env.PI_CODING_AGENT_DIR ??
+    (home ? join(home, ".omp", "agent") : undefined);
 
-  if (!env.OMP_PAI_DATA_DIR && !profileRoot) {
+  if (!profileRootValue) {
     throw new Error("Cannot resolve OMP profile directory");
   }
 
-  const dataRoot = resolve(env.OMP_PAI_DATA_DIR ?? join(profileRoot!, "pai"));
+  const profileRoot = resolve(profileRootValue);
+  const dataRoot = resolve(env.OMP_PAI_DATA_DIR ?? join(profileRoot, "pai"));
 
   return {
     pluginRoot,
     dataRoot,
+    profileRoot,
     algorithmPath: override ?? join(pluginRoot, "templates", "Algorithm", "v3.5.0.md"),
     algorithmVersion: algorithmVersion!,
     algorithmSource: override ? "local-override" : "bundled-mit-v3.5.0",

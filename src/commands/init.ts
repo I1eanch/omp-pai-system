@@ -14,11 +14,14 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 export type InitializePaiStateInput = {
   pluginRoot: string;
   dataRoot: string;
+  profileRoot: string;
 };
 
 export type InitializePaiStateReport = {
   created: string[];
   skipped: string[];
+  profileCreated: string[];
+  profileSkipped: string[];
   directories: string[];
 };
 
@@ -97,7 +100,7 @@ function copyStarter(
   dataRoot: string,
   templatePath: string,
   destinationPath: string,
-  report: InitializePaiStateReport,
+  report: Pick<InitializePaiStateReport, "created" | "skipped">,
 ): void {
   const source = safeChild(join(pluginRoot, "templates"), templatePath);
   const sourceInfo = lstatSync(source, { throwIfNoEntry: false });
@@ -213,9 +216,12 @@ export function initializePaiState(
 ): InitializePaiStateReport {
   const pluginRoot = resolve(input.pluginRoot);
   const dataRoot = resolve(input.dataRoot);
+  const profileRoot = resolve(input.profileRoot);
   const report: InitializePaiStateReport = {
     created: [],
     skipped: [],
+    profileCreated: [],
+    profileSkipped: [],
     directories: [...STATE_DIRECTORIES],
   };
 
@@ -231,8 +237,31 @@ export function initializePaiState(
     copyStarter(pluginRoot, dataRoot, `MEMORY/${filename}`, `MEMORY/${filename}`, report);
   }
 
+  ensureDirectory(profileRoot, ".");
+  const yamlAliasPath = safeChild(profileRoot, "WATCHDOG.yaml");
+  const yamlAliasInfo = lstatSync(yamlAliasPath, { throwIfNoEntry: false });
+  if (yamlAliasInfo) {
+    if (yamlAliasInfo.isSymbolicLink()) {
+      throw new Error("Refusing symlink destination: WATCHDOG.yaml");
+    }
+    if (!yamlAliasInfo.isFile()) {
+      throw new Error("Expected file but found directory: WATCHDOG.yaml");
+    }
+    report.profileSkipped.push("WATCHDOG.yaml");
+  } else {
+    copyStarter(
+      pluginRoot,
+      profileRoot,
+      "WATCHDOG.yml",
+      "WATCHDOG.yml",
+      { created: report.profileCreated, skipped: report.profileSkipped },
+    );
+  }
+
   report.created.sort();
   report.skipped.sort();
+  report.profileCreated.sort();
+  report.profileSkipped.sort();
   writeOwnership(pluginRoot, dataRoot, previousOwnership, report.created);
   return report;
 }

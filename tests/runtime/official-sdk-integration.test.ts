@@ -50,15 +50,18 @@ test("loads and chains through the official OMP ExtensionRunner", async () => {
         thinkingLevel: "MINIMAL",
         includeThoughts: false,
       });
-      expect(providerPayload.config.systemInstruction.parts.at(-1).text)
-        .toContain("This OMP turn requires ALGORITHM");
+      const mainInstruction = providerPayload.config.systemInstruction.parts.at(-1).text;
+      expect(mainInstruction).toContain("select exactly one PAI mode");
+      expect(mainInstruction).not.toMatch(
+        /This OMP turn requires (?:MINIMAL|NATIVE|ALGORITHM)/,
+      );
 
       const subagent = await runner!.emitBeforeAgentStart(
         "Собери многофайловый Astro/Tilda лендинг.",
         undefined,
         ["COOP", "You are operating on a piece of work assigned to you by the main agent."],
       );
-      expect(subagent?.systemPrompt?.join("\n\n")).toContain("This OMP turn requires NATIVE");
+      expect(subagent?.systemPrompt?.join("\n\n")).toContain("subagent turn requires NATIVE");
     } finally {
       await session.dispose();
     }

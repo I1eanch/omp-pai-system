@@ -10,6 +10,7 @@
     "src/**",
     "contracts/**",
     "templates/**",
+    "patches/**",
     "privacy/allowlist.json",
     "privacy/exclusions.json",
     "privacy/provenance-manifest.json"

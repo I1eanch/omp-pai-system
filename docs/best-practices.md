@@ -39,11 +39,12 @@ Importer сначала проверяет manifest, размеры, SHA-256, pa
 
 ## Runtime gate
 
-- Не дублируйте PAI mode header или фиксированную строку `TASK` после первого tool result.
-- Для сложного запроса первый tool call после ALGORITHM preamble — полное чтение configured Algorithm path.
-- Если `read` сообщает truncation, продолжайте с первого непрочитанного номера строки до конца.
-- Не подменяйте сложный запрос несколькими атомарными NATIVE turns ради обхода Algorithm.
-- Subagent работает в NATIVE, если main agent явно не передал `<pai-mode>ALGORITHM</pai-mode>`.
+- Не дублируйте PAI mode header или восьмисловную строку `TASK` после первого tool result.
+- Обычные исследования, объяснения и read-only проверки оставляйте в `NATIVE`, даже если inspection требует нескольких tool calls.
+- Для ограниченной умеренной многошаговой работы используйте `ALGORITHM LIGHT`: scope → execute → verify, без чтения Algorithm-файла, run PRD, ISC и reflection.
+- Только для high-risk запроса первый tool call после полного `ALGORITHM` preamble — чтение configured Algorithm path. Если `read` сообщает truncation, продолжайте с первого непрочитанного номера строки до конца.
+- Не подменяйте high-risk запрос несколькими `NATIVE` или `ALGORITHM LIGHT` turns ради обхода полного Algorithm.
+- Subagent работает в `NATIVE`, если main agent явно не передал `<pai-mode>ALGORITHM_LIGHT</pai-mode>` или `<pai-mode>ALGORITHM</pai-mode>`.
 
 ## Release privacy
 Следующие maintainer checks запускаются из source checkout; release artifact намеренно не содержит `scripts/`, `tests/` и `tsconfig.json`.

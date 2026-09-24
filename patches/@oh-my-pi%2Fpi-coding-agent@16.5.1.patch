@@ -1,0 +1,231 @@
+diff --git a/node_modules/@oh-my-pi/pi-coding-agent/.bun-tag-3a74d37ac2d3a502 b/.bun-tag-3a74d37ac2d3a502
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/src/advisor/__tests__/advisor.test.ts b/src/advisor/__tests__/advisor.test.ts
+index 66e036da109de2e9a823ce3876760f34632ce035..c387f0142888c31569b79888e0cd2c858fe6510e 100644
+--- a/src/advisor/__tests__/advisor.test.ts
++++ b/src/advisor/__tests__/advisor.test.ts
+@@ -1058,7 +1058,7 @@ describe("advisor", () => {
+ 			expect(runtime.backlog).toBe(0);
+ 		});
+ 
+-		it("tags in-progress turns with [in progress] heading", async () => {
++		it("defers WIP updates and sends one complete delta after the final turn", async () => {
+ 			const promptInputs: string[] = [];
+ 			const { promise: promptStarted, resolve: startPrompt } = Promise.withResolvers<void>();
+ 			const agent: AdvisorAgent = {
+@@ -1070,7 +1070,7 @@ describe("advisor", () => {
+ 				reset: () => {},
+ 				state: { messages: [] },
+ 			};
+-			const messages: AgentMessage[] = [{ role: "user", content: "hello", timestamp: 1 } as AgentMessage];
++			const messages: AgentMessage[] = [{ role: "user", content: "first", timestamp: 1 } as AgentMessage];
+ 			const host: AdvisorRuntimeHost = {
+ 				snapshotMessages: () => messages,
+ 				enqueueAdvice: () => {},
+@@ -1078,10 +1078,24 @@ describe("advisor", () => {
+ 			const runtime = new AdvisorRuntime(agent, host);
+ 
+ 			runtime.onTurnEnd(messages, { willContinue: true });
++			await Promise.resolve();
++			expect(promptInputs).toHaveLength(0);
++
++			messages.push({ role: "user", content: "middle", timestamp: 2 } as AgentMessage);
++			runtime.onTurnEnd(messages, { willContinue: true });
++			await Promise.resolve();
++			expect(promptInputs).toHaveLength(0);
++
++			messages.push({ role: "user", content: "done", timestamp: 3 } as AgentMessage);
++			runtime.onTurnEnd(messages, { willContinue: false });
+ 			await promptStarted;
+ 
+ 			expect(promptInputs).toHaveLength(1);
+-			expect(promptInputs[0]).toContain("[in progress — more steps follow]");
++			expect(promptInputs[0]).toContain("first");
++			expect(promptInputs[0]).toContain("middle");
++			expect(promptInputs[0]).toContain("done");
++			expect(promptInputs[0]).toContain("### Session update\n");
++			expect(promptInputs[0]).not.toContain("[in progress");
+ 		});
+ 
+ 		it("uses plain heading when willContinue is false or absent", async () => {
+@@ -1856,23 +1870,19 @@ describe("advisor", () => {
+ 			expect(failures).toHaveLength(2);
+ 		});
+ 
+-		it("treats an empty stop turn without advise as a failed advisor turn", async () => {
++		it("treats an empty stop turn without advise as intentional silence", async () => {
+ 			const promptInputs: string[] = [];
+ 			const turnErrors: unknown[] = [];
+ 			const failures: unknown[] = [];
+ 			const adviceNotes: string[] = [];
+ 			const rollbackCalls: number[] = [];
+ 			const lengthsBeforePrompt: number[] = [];
+-			const events: string[] = [];
+ 			const state: { messages: AgentMessage[]; error?: string } = { messages: [] };
+-			let promptCalls = 0;
+ 			const agent: AdvisorAgent = {
+ 				prompt: async input => {
+-					promptCalls++;
+ 					promptInputs.push(input);
+ 					lengthsBeforePrompt.push(state.messages.length);
+-					events.push(`prompt:${promptCalls}`);
+-					state.messages.push({ role: "user", content: input, timestamp: promptCalls * 2 - 1 } as AgentMessage);
++					state.messages.push({ role: "user", content: input, timestamp: 1 } as AgentMessage);
+ 					state.messages.push({
+ 						role: "assistant",
+ 						content: [],
+@@ -1887,7 +1897,7 @@ describe("advisor", () => {
+ 							totalTokens: 0,
+ 						},
+ 						stopReason: "stop",
+-						timestamp: promptCalls * 2,
++						timestamp: 2,
+ 					} as unknown as AgentMessage);
+ 					state.error = undefined;
+ 				},
+@@ -1907,55 +1917,22 @@ describe("advisor", () => {
+ 			const host: AdvisorRuntimeHost = {
+ 				snapshotMessages: () => messages,
+ 				enqueueAdvice: note => adviceNotes.push(note),
+-				onTurnError: error => {
+-					turnErrors.push(error);
+-					events.push(`hook:${error instanceof Error ? error.message : String(error)}`);
+-				},
+-				notifyFailure: error => {
+-					failures.push(error);
+-					events.push(`notify:${error instanceof Error ? error.message : String(error)}`);
+-				},
++				onTurnError: error => turnErrors.push(error),
++				notifyFailure: error => failures.push(error),
+ 			};
+ 			const runtime = new AdvisorRuntime(agent, host, 0);
+ 
+ 			runtime.onTurnEnd(messages);
+ 			await runtime.waitForCatchup(1000, 1);
+ 
+-			expect(promptInputs).toHaveLength(3);
++			expect(promptInputs).toHaveLength(1);
+ 			expect(promptInputs[0]).toContain("aaa");
+-			expect(promptInputs[1]).toBe(promptInputs[0]);
+-			expect(promptInputs[2]).toBe(promptInputs[0]);
+-			expect(lengthsBeforePrompt).toEqual([0, 0, 0]);
+-			expect(rollbackCalls).toEqual([0, 0, 0]);
+-			expect(turnErrors).toHaveLength(3);
+-			const turnErrorMessages = turnErrors.map(error =>
+-				(error instanceof Error ? error.message : String(error)).toLowerCase(),
+-			);
+-			for (const message of turnErrorMessages) {
+-				expect(message).toContain("advisor");
+-				expect(message).toContain("empty");
+-				expect(message).toContain("response");
+-			}
+-			expect(failures).toHaveLength(1);
+-			const failure = failures[0];
+-			if (!(failure instanceof Error)) throw new Error("expected advisor failure error");
+-			expect(failure.message.toLowerCase()).toContain("advisor");
+-			expect(failure.message.toLowerCase()).toContain("empty");
+-			expect(failure.message.toLowerCase()).toContain("response");
+-			expect(events).toHaveLength(7);
+-			expect(events[0]).toBe("prompt:1");
+-			expect(events[1].startsWith("hook:")).toBe(true);
+-			expect(events[1].toLowerCase()).toContain("empty");
+-			expect(events[2]).toBe("prompt:2");
+-			expect(events[3].startsWith("hook:")).toBe(true);
+-			expect(events[3].toLowerCase()).toContain("empty");
+-			expect(events[4]).toBe("prompt:3");
+-			expect(events[5].startsWith("hook:")).toBe(true);
+-			expect(events[5].toLowerCase()).toContain("empty");
+-			expect(events[6].toLowerCase()).toContain("empty");
+-			expect(events[6].startsWith("notify:")).toBe(true);
++			expect(lengthsBeforePrompt).toEqual([0]);
++			expect(rollbackCalls).toEqual([]);
++			expect(turnErrors).toEqual([]);
++			expect(failures).toEqual([]);
+ 			expect(adviceNotes).toEqual([]);
+-			expect(state.messages).toHaveLength(0);
++			expect(state.messages).toHaveLength(2);
+ 			expect(state.error).toBeUndefined();
+ 			expect(runtime.backlog).toBe(0);
+ 		});
+diff --git a/src/advisor/runtime.ts b/src/advisor/runtime.ts
+index 3288602b1f99bf2afa66619c5bd92be57345a61d..38d0aaa486595d7c1249ee4254ccc2b7e1a18324 100644
+--- a/src/advisor/runtime.ts
++++ b/src/advisor/runtime.ts
+@@ -241,16 +241,17 @@ export class AdvisorRuntime {
+ 	 * queues it for the advisor model.
+ 	 *
+ 	 * @param messages - Live primary transcript snapshot (defaults to `snapshotMessages()`).
+-	 * @param opts.willContinue - When `true` the primary is mid-turn (more tool-call
+-	 *   steps will follow). The rendered heading is tagged `[in progress]` so the
+-	 *   advisor knows to withhold critique on partial work. The flag is carried on
+-	 *   the delta and forwarded to the reprime path so it is never silently dropped.
++	 * @param opts.willContinue - When `true` the primary is mid-turn, so the
++	 *   snapshot is retained without rendering a delta or advancing `#lastCount`.
++	 *   The final `willContinue:false` update renders the complete accumulated
++	 *   transcript change and dispatches exactly one advisor turn.
+ 	 */
+ 	onTurnEnd(messages?: AgentMessage[], opts?: { willContinue?: boolean }): void {
+ 		if (this.disposed) return;
+ 		const all = messages ?? this.host.snapshotMessages();
+ 		this.#latestMessages = all;
+-		const wip = opts?.willContinue ?? false;
++		if (opts?.willContinue === true) return;
++		const wip = false;
+ 		const render = this.#renderDelta(all, wip);
+ 		if (render) {
+ 			this.#pending.push({ text: render, turns: 1, wip });
+@@ -532,10 +533,10 @@ export class AdvisorRuntime {
+ 					// as a failed turn so endpoint rejections trip the retry path.
+ 					const promptError = this.agent.state.error;
+ 					if (promptError) throw new Error(promptError);
+-					const emptyResponseError = getAdvisorEmptyResponseError(
++					const completionError = getAdvisorTurnCompletionError(
+ 						this.agent.state.messages.slice(messageSnapshot),
+ 					);
+-					if (emptyResponseError) throw emptyResponseError;
++					if (completionError) throw completionError;
+ 					success = true;
+ 					this.#consecutiveFailures = 0;
+ 					this.#failureNotified = false;
+@@ -594,38 +595,14 @@ export class AdvisorRuntime {
+ 	}
+ }
+ 
+-function getAdvisorEmptyResponseError(messages: readonly AgentMessage[]): Error | undefined {
+-	let sawAssistant = false;
++function getAdvisorTurnCompletionError(messages: readonly AgentMessage[]): Error | undefined {
+ 	for (const message of messages) {
+-		if (message.role !== "assistant") continue;
+-		sawAssistant = true;
+-		if (message.stopReason !== "stop") return undefined;
+-		if (hasAdvisorResponseContent(message)) return undefined;
++		if (message.role === "assistant") return undefined;
+ 	}
+-	if (sawAssistant) return new Error("Advisor turn returned an empty stop response without advice");
+ 	if (messages.length > 0) return new Error("Advisor turn ended without an assistant response");
+ 	return undefined;
+ }
+ 
+-function hasAdvisorResponseContent(message: AssistantMessage): boolean {
+-	return message.content.some(block => {
+-		switch (block.type) {
+-			case "text":
+-				return block.text.trim().length > 0;
+-			case "thinking":
+-				return block.thinking.trim().length > 0;
+-			case "redactedThinking":
+-				return block.data.length > 0;
+-			case "toolCall":
+-				return block.name.trim().length > 0;
+-			case "fallback":
+-				return false;
+-			default:
+-				return false;
+-		}
+-	});
+-}
+-
+ type TextualContent = string | readonly (TextContent | ImageContent)[];
+ 
+ function obfuscateTextualContent(obfuscator: SecretObfuscator, content: TextualContent): TextualContent {

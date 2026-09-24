@@ -13,6 +13,7 @@
     "contracts/",
     "templates/",
     "privacy/",
+    "patches/",
     "README.md",
     "CHANGELOG.md",
     "docs/",
@@ -43,5 +44,8 @@
     "@types/bun": "^1.3.14",
     "@types/tar-stream": "^3.1.4",
     "typescript": "^7.0.2"
+  },
+  "patchedDependencies": {
+    "@oh-my-pi/pi-coding-agent@16.5.1": "patches/@oh-my-pi%2Fpi-coding-agent@16.5.1.patch"
   }
 }

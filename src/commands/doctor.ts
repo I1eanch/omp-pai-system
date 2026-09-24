@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { YAML } from "bun";
 import { readOwnership } from "./init.ts";
 import { listPrivateFiles } from "../private-bundle.ts";
 
@@ -12,9 +13,11 @@ export type DoctorCheck = {
 export type PaiDoctorInput = {
   pluginRoot: string;
   dataRoot: string;
+  profileRoot: string;
   algorithmPath: string;
   algorithmVersion: string;
 };
+
 
 export type PaiDoctorReport = {
   checks: DoctorCheck[];
@@ -59,9 +62,40 @@ function jsonStateCheck(id: string, path: string, label: string): DoctorCheck {
   }
 }
 
+const ADVISOR_BOUNDARY = "ADVISOR IS NOT A PAI EXECUTOR";
+
+function advisorContractCheck(profileRoot: string): DoctorCheck {
+  let found = false;
+  let boundaryFound = false;
+  for (const filename of ["WATCHDOG.yml", "WATCHDOG.yaml"]) {
+    const path = join(profileRoot, filename);
+    const info = lstatSync(path, { throwIfNoEntry: false });
+    if (!info) continue;
+    found = true;
+    if (info.isSymbolicLink() || !info.isFile()) {
+      return { id: "advisor-contract", status: "fail", message: `${filename} is not a safe file` };
+    }
+    try {
+      const parsed = YAML.parse(readFileSync(path, "utf8")) as { instructions?: unknown } | null;
+      if (typeof parsed?.instructions === "string" && parsed.instructions.includes(ADVISOR_BOUNDARY)) {
+        boundaryFound = true;
+      }
+    } catch {
+      return { id: "advisor-contract", status: "fail", message: `${filename} contains invalid YAML` };
+    }
+  }
+  if (!found) {
+    return { id: "advisor-contract", status: "warn", message: "Advisor contract is not installed" };
+  }
+  return boundaryFound
+    ? { id: "advisor-contract", status: "pass", message: "Advisor role boundary is installed" }
+    : { id: "advisor-contract", status: "fail", message: "Advisor role boundary marker is missing" };
+}
+
 export function runPaiDoctor(input: PaiDoctorInput): PaiDoctorReport {
   const pluginRoot = resolve(input.pluginRoot);
   const dataRoot = resolve(input.dataRoot);
+  const profileRoot = resolve(input.profileRoot);
   const checks: DoctorCheck[] = [];
 
   try {
@@ -100,6 +134,7 @@ export function runPaiDoctor(input: PaiDoctorInput): PaiDoctorReport {
   checks.push(templateFiles.every((path) => regularFile(join(pluginRoot, "templates/PAI", path)))
     ? { id: "pai-templates", status: "pass", message: "Portable PAI templates are complete" }
     : { id: "pai-templates", status: "fail", message: "Portable PAI templates are incomplete or unsafe" });
+  checks.push(advisorContractCheck(profileRoot));
 
   checks.push(directoryCheck("state-root", dataRoot, "PAI data root"));
   checks.push(directoryCheck("telos-root", join(dataRoot, "TELOS"), "TELOS root"));
@@ -140,3 +175,4 @@ export function runPaiDoctor(input: PaiDoctorInput): PaiDoctorReport {
     failed: checks.filter(({ status }) => status === "fail").length,
   };
 }
+

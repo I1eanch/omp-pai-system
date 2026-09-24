@@ -37,9 +37,13 @@ export function createPaiPlugin(input: CreatePaiPluginInput): (pi: ExtensionAPI)
         const report = initializePaiState({
           pluginRoot: config.pluginRoot,
           dataRoot: config.dataRoot,
+          profileRoot: config.profileRoot,
         });
+        const restartNotice = report.profileCreated.length > 0
+          ? " Restart OMP to activate Advisor contract."
+          : "";
         context.ui.notify(
-          `PAI initialized: ${report.created.length} created, ${report.skipped.length} preserved`,
+          `PAI initialized: ${report.created.length + report.profileCreated.length} created, ${report.skipped.length + report.profileSkipped.length} preserved.${restartNotice}`,
           "info",
         );
       },
@@ -50,6 +54,7 @@ export function createPaiPlugin(input: CreatePaiPluginInput): (pi: ExtensionAPI)
         const report = runPaiDoctor({
           pluginRoot: config.pluginRoot,
           dataRoot: config.dataRoot,
+          profileRoot: config.profileRoot,
           algorithmPath: config.algorithmPath,
           algorithmVersion: config.algorithmVersion,
         });
